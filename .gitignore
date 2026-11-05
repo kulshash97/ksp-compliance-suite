@@ -1,0 +1,21 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Streamlit Local Cache
+.streamlit/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# Output exports & test client data
+*.pdf
+*.xlsx
+*.csv
+*.json
+!backend/app/core/tax_rules.json

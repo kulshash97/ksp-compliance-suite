@@ -1,0 +1,66 @@
+{
+  "AY 2024-25": {
+    "standard_deduction": 50000.0,
+    "rebate_87a_limit_new": 700000.0,
+    "rebate_87a_max_new": 25000.0,
+    "rebate_87a_limit_old": 500000.0,
+    "rebate_87a_max_old": 12500.0,
+    "new_regime_slabs": [
+      {"up_to": 300000.0, "rate": 0.0},
+      {"up_to": 600000.0, "rate": 0.05},
+      {"up_to": 900000.0, "rate": 0.10},
+      {"up_to": 1200000.0, "rate": 0.15},
+      {"up_to": 1500000.0, "rate": 0.20},
+      {"up_to": null, "rate": 0.30}
+    ],
+    "old_regime_slabs": [
+      {"up_to": 250000.0, "rate": 0.0},
+      {"up_to": 500000.0, "rate": 0.05},
+      {"up_to": 1000000.0, "rate": 0.20},
+      {"up_to": null, "rate": 0.30}
+    ]
+  },
+  "AY 2025-26": {
+    "standard_deduction": 75000.0,
+    "rebate_87a_limit_new": 700000.0,
+    "rebate_87a_max_new": 25000.0,
+    "rebate_87a_limit_old": 500000.0,
+    "rebate_87a_max_old": 12500.0,
+    "new_regime_slabs": [
+      {"up_to": 300000.0, "rate": 0.0},
+      {"up_to": 700000.0, "rate": 0.05},
+      {"up_to": 1000000.0, "rate": 0.10},
+      {"up_to": 1200000.0, "rate": 0.15},
+      {"up_to": 1500000.0, "rate": 0.20},
+      {"up_to": null, "rate": 0.30}
+    ],
+    "old_regime_slabs": [
+      {"up_to": 250000.0, "rate": 0.0},
+      {"up_to": 500000.0, "rate": 0.05},
+      {"up_to": 1000000.0, "rate": 0.20},
+      {"up_to": null, "rate": 0.30}
+    ]
+  },
+  "AY 2026-27": {
+    "standard_deduction": 75000.0,
+    "rebate_87a_limit_new": 1200000.0,
+    "rebate_87a_max_new": 60000.0,
+    "rebate_87a_limit_old": 500000.0,
+    "rebate_87a_max_old": 12500.0,
+    "new_regime_slabs": [
+      {"up_to": 400000.0, "rate": 0.0},
+      {"up_to": 800000.0, "rate": 0.05},
+      {"up_to": 1200000.0, "rate": 0.10},
+      {"up_to": 1600000.0, "rate": 0.15},
+      {"up_to": 2000000.0, "rate": 0.20},
+      {"up_to": 2400000.0, "rate": 0.25},
+      {"up_to": null, "rate": 0.30}
+    ],
+    "old_regime_slabs": [
+      {"up_to": 250000.0, "rate": 0.0},
+      {"up_to": 500000.0, "rate": 0.05},
+      {"up_to": 1000000.0, "rate": 0.20},
+      {"up_to": null, "rate": 0.30}
+    ]
+  }
+}
