@@ -169,16 +169,20 @@ with tab3:
         submitted = st.form_submit_button("Evaluate Audit Mandate")
 
     if submitted:
-        status, reason = StatutoryAuditGatekeeper().evaluate(entity_type=ent_type, annual_turnover=Decimal(str(turnover)), is_95_percent_digital=digital_tx)
+        audit_res = StatutoryAuditGatekeeper().evaluate(entity_type=ent_type, annual_turnover=Decimal(str(turnover)), is_95_percent_digital=digital_tx)
+        status = audit_res[0]
+        reason = audit_res[1]
+        
+        status_val = status.value if hasattr(status, 'value') else str(status)
         if status == AuditWorkflowStatus.NEEDS_CA_AUDIT:
-            st.warning(f"🔒 **STATUS: {status.value}**")
+            st.warning(f"🔒 **STATUS: {status_val}**")
             st.info(f"**Escrow Action:** {reason}")
         else:
-            st.success(f"🔓 **STATUS: {status.value}**")
+            st.success(f"🔓 **STATUS: {status_val}**")
             st.write(reason)
 
         st.markdown("---")
-        pdf_bytes_t3 = generate_audit_escrow_pdf(ent_name, ent_type.value, Decimal(str(turnover)), digital_tx, status.value, reason)
+        pdf_bytes_t3 = generate_audit_escrow_pdf(ent_name, ent_type.value, Decimal(str(turnover)), digital_tx, status_val, reason)
         st.download_button(
             label="📄 Download Statutory CA Audit Mandate & Escrow Memo (PDF)",
             data=pdf_bytes_t3,
