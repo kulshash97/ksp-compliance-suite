@@ -12,6 +12,7 @@ class EntityType(str, Enum):
     PUBLIC_LTD = "PUBLIC_LTD"
 
 class AuditWorkflowStatus(str, Enum):
+    SELF_SERVE = "SELF_SERVE"
     NO_AUDIT_REQUIRED = "NO_AUDIT_REQUIRED"
     NEEDS_CA_AUDIT = "NEEDS_CA_AUDIT"
 
