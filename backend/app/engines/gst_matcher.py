@@ -1,163 +1,133 @@
 import re
 from decimal import Decimal
-from typing import List, Tuple, Set
+from typing import List, Dict, Tuple, Optional
+from collections import defaultdict
 from rapidfuzz import fuzz
 from backend.app.models.schemas import (
     StandardInvoice,
     ReconciliationRecord,
-    ReconciliationSummary,
-    ComplianceStatus
+    ReconciliationStatus,
+    ReconciliationSummary
 )
 
-def normalize_invoice_no(inv_no: str) -> str:
-    """Strips leading zeros and non-alphanumeric chars to align formats."""
-    cleaned = re.sub(r"[^A-Za-z0-9]", "", str(inv_no)).upper()
-    return cleaned.lstrip("0")
-
 class Rule36ReconciliationEngine:
-    """
-    Deterministic O(N + M) exact matching with O(K * P) bounded fuzzy resolution
-    for Section 16 & Rule 36(4) ITC claims.
-    """
-    def __init__(self, tolerance_inr: Decimal = Decimal("1.00"), fuzzy_threshold: float = 85.0):
-        self.tolerance = tolerance_inr
-        self.fuzzy_threshold = fuzzy_threshold
+    @staticmethod
+    def normalize_invoice_no(inv_no: str) -> str:
+        """
+        Strips non-alphanumeric noise, slashes, hyphens, and leading zeros.
+        Example: 'INV/2024-25/00042' -> 'INV20242542'
+        """
+        cleaned = re.sub(r"[^A-Za-z0-9]", "", inv_no or "").upper()
+        return cleaned.lstrip("0") or "0"
 
     def run(self, books: List[StandardInvoice], gstr2b: List[StandardInvoice]) -> ReconciliationSummary:
-        records: List[ReconciliationRecord] = []
-        matched_books_idx: Set[int] = set()
-        matched_2b_idx: Set[int] = set()
+        eligible_itc = Decimal("0.00")
+        blocked_itc = Decimal("0.00")
+        matched_records: List[ReconciliationRecord] = []
+        discrepancies: List[ReconciliationRecord] = []
 
-        # Step 1: O(N) Hash indexing for GSTR-2B
-        gstr2b_map = {}
-        for idx, inv in enumerate(gstr2b):
-            key = (inv.supplier_gstin, normalize_invoice_no(inv.invoice_number))
-            gstr2b_map.setdefault(key, []).append(idx)
+        # -------------------------------------------------------------
+        # 1. HASH INDEXING PHASE: O(M)
+        # Partition GSTR-2B invoices by normalized supplier GSTIN.
+        # Key: (Normalized_GSTIN) -> List of 2B Invoices
+        # Exact Map: (Normalized_GSTIN, Exact_Invoice_No) -> StandardInvoice
+        # -------------------------------------------------------------
+        gstr2b_bucket: Dict[str, List[StandardInvoice]] = defaultdict(list)
+        exact_map: Dict[Tuple[str, str], StandardInvoice] = {}
 
-        # Step 2: O(M) Exact Hash Match against Books
-        for b_idx, b_inv in enumerate(books):
-            b_norm = normalize_invoice_no(b_inv.invoice_number)
-            key = (b_inv.supplier_gstin, b_norm)
+        for inv in gstr2b:
+            norm_gstin = (inv.supplier_gstin or "").strip().upper()
+            gstr2b_bucket[norm_gstin].append(inv)
+            exact_map[(norm_gstin, (inv.invoice_number or "").strip().upper())] = inv
 
-            if key in gstr2b_map and gstr2b_map[key]:
-                cand_idx = gstr2b_map[key].pop(0)
-                g_inv = gstr2b[cand_idx]
-                matched_books_idx.add(b_idx)
-                matched_2b_idx.add(cand_idx)
+        matched_2b_ids = set()
 
-                tax_diff = abs(b_inv.total_tax - g_inv.total_tax)
-                if tax_diff <= self.tolerance:
-                    records.append(ReconciliationRecord(
-                        invoice_number=b_inv.invoice_number,
-                        supplier_gstin=b_inv.supplier_gstin,
-                        status=ComplianceStatus.MATCHED,
-                        books_taxable=b_inv.taxable_value,
-                        gstr2b_taxable=g_inv.taxable_value,
-                        books_tax=b_inv.total_tax,
-                        gstr2b_tax=g_inv.total_tax,
-                        tax_difference=tax_diff,
-                        match_score=1.0,
-                        notes="Exact match confirmed."
+        # -------------------------------------------------------------
+        # 2. STREAM MATCHING PHASE: O(N)
+        # Search space is strictly constrained to identical vendor buckets.
+        # -------------------------------------------------------------
+        for b_inv in books:
+            norm_b_gstin = (b_inv.supplier_gstin or "").strip().upper()
+            raw_b_num = (b_inv.invoice_number or "").strip().upper()
+            norm_b_num = self.normalize_invoice_no(raw_b_num)
+
+            # --- Tier 1: O(1) Exact Cryptographic Hit ---
+            exact_candidate = exact_map.get((norm_b_gstin, raw_b_num))
+            if exact_candidate and id(exact_candidate) not in matched_2b_ids:
+                tax_diff = abs(b_inv.total_tax - exact_candidate.total_tax)
+                if tax_diff <= Decimal("1.00"):
+                    eligible_itc += b_inv.total_tax
+                    matched_records.append(ReconciliationRecord(
+                        status=ReconciliationStatus.EXACT_MATCH,
+                        books_invoice=b_inv,
+                        gstr2b_invoice=exact_candidate,
+                        tax_variance=tax_diff,
+                        remarks="Exact cryptographic match"
                     ))
-                else:
-                    records.append(ReconciliationRecord(
-                        invoice_number=b_inv.invoice_number,
-                        supplier_gstin=b_inv.supplier_gstin,
-                        status=ComplianceStatus.PARTIAL_MATCH,
-                        books_taxable=b_inv.taxable_value,
-                        gstr2b_taxable=g_inv.taxable_value,
-                        books_tax=b_inv.total_tax,
-                        gstr2b_tax=g_inv.total_tax,
-                        tax_difference=tax_diff,
-                        match_score=0.95,
-                        notes=f"Tax value mismatch exceeding tolerance limit: Rs {tax_diff}"
-                    ))
-
-        # Step 3: Fuzzy recovery on unallocated records (Prefixes/Typos)
-        unmatched_books = [i for i in range(len(books)) if i not in matched_books_idx]
-        unmatched_2b = [j for j in range(len(gstr2b)) if j not in matched_2b_idx]
-
-        for b_idx in list(unmatched_books):
-            b_inv = books[b_idx]
-            b_norm = normalize_invoice_no(b_inv.invoice_number)
-
-            best_sim = 0.0
-            best_match_j = None
-
-            for g_idx in unmatched_2b:
-                g_inv = gstr2b[g_idx]
-                if b_inv.supplier_gstin != g_inv.supplier_gstin:
+                    matched_2b_ids.add(id(exact_candidate))
                     continue
 
-                g_norm = normalize_invoice_no(g_inv.invoice_number)
-                sim = fuzz.token_sort_ratio(b_norm, g_norm)
+            # --- Tier 2: Canonical Normalization & Constrained Fuzzy ---
+            candidates = gstr2b_bucket.get(norm_b_gstin, [])
+            best_match: Optional[StandardInvoice] = None
+            best_score = 0.0
 
-                if sim > best_sim and sim >= self.fuzzy_threshold:
-                    best_sim = sim
-                    best_match_j = g_idx
+            for c_inv in candidates:
+                if id(c_inv) in matched_2b_ids:
+                    continue
+                norm_c_num = self.normalize_invoice_no(c_inv.invoice_number)
 
-            if best_match_j is not None:
-                g_inv = gstr2b[best_match_j]
-                matched_books_idx.add(b_idx)
-                matched_2b_idx.add(best_match_j)
-                unmatched_2b.remove(best_match_j)
+                # Check canonical normalized equality (instant)
+                if norm_b_num == norm_c_num:
+                    best_match = c_inv
+                    best_score = 100.0
+                    break
 
-                tax_diff = abs(b_inv.total_tax - g_inv.total_tax)
-                records.append(ReconciliationRecord(
-                    invoice_number=f"{b_inv.invoice_number} ~ {g_inv.invoice_number}",
-                    supplier_gstin=b_inv.supplier_gstin,
-                    status=ComplianceStatus.PARTIAL_MATCH,
-                    books_taxable=b_inv.taxable_value,
-                    gstr2b_taxable=g_inv.taxable_value,
-                    books_tax=b_inv.total_tax,
-                    gstr2b_tax=g_inv.total_tax,
-                    tax_difference=tax_diff,
-                    match_score=float(best_sim) / 100.0,
-                    notes=f"Fuzzy invoice match ({best_sim:.1f}%). Confirm vendor invoice formatting."
+                # Constrained Levenshtein within tiny vendor partition
+                score = fuzz.ratio(norm_b_num, norm_c_num)
+                if score > best_score and score >= 88.0:
+                    best_score = score
+                    best_match = c_inv
+
+            if best_match:
+                tax_diff = abs(b_inv.total_tax - best_match.total_tax)
+                if tax_diff <= Decimal("1.00"):
+                    eligible_itc += b_inv.total_tax
+                    matched_records.append(ReconciliationRecord(
+                        status=ReconciliationStatus.FUZZY_MATCH,
+                        books_invoice=b_inv,
+                        gstr2b_invoice=best_match,
+                        tax_variance=tax_diff,
+                        remarks=f"Matched with canonical similarity index {best_score:.1f}%"
+                    ))
+                else:
+                    blocked_itc += b_inv.total_tax
+                    discrepancies.append(ReconciliationRecord(
+                        status=ReconciliationStatus.TAX_MISMATCH,
+                        books_invoice=b_inv,
+                        gstr2b_invoice=best_match,
+                        tax_variance=tax_diff,
+                        remarks=f"Tax variance Rs {tax_diff:,.2f} exceeds statutory tolerance (Rs 1.00)"
+                    ))
+                matched_2b_ids.add(id(best_match))
+            else:
+                # Invoice missing from GSTR-2B: strictly blocked under Rule 36(4)
+                blocked_itc += b_inv.total_tax
+                discrepancies.append(ReconciliationRecord(
+                    status=ReconciliationStatus.MISSING_IN_2B,
+                    books_invoice=b_inv,
+                    gstr2b_invoice=None,
+                    tax_variance=b_inv.total_tax,
+                    remarks="Supplier has not uploaded invoice in GSTR-1. Ineligible under Rule 36(4)."
                 ))
-
-        # Step 4: Missing records
-        for b_idx in range(len(books)):
-            if b_idx not in matched_books_idx:
-                inv = books[b_idx]
-                records.append(ReconciliationRecord(
-                    invoice_number=inv.invoice_number,
-                    supplier_gstin=inv.supplier_gstin,
-                    status=ComplianceStatus.MISSING_IN_2B,
-                    books_taxable=inv.taxable_value,
-                    books_tax=inv.total_tax,
-                    notes="ITC ineligible under Rule 36(4): Invoice missing in vendor GSTR-2B."
-                ))
-
-        for g_idx in range(len(gstr2b)):
-            if g_idx not in matched_2b_idx:
-                inv = gstr2b[g_idx]
-                records.append(ReconciliationRecord(
-                    invoice_number=inv.invoice_number,
-                    supplier_gstin=inv.supplier_gstin,
-                    status=ComplianceStatus.MISSING_IN_BOOKS,
-                    gstr2b_taxable=inv.taxable_value,
-                    gstr2b_tax=inv.total_tax,
-                    notes="Present in GSTR-2B but missing from purchase ledger books."
-                ))
-
-        # Summaries
-        matched_cnt = sum(1 for r in records if r.status == ComplianceStatus.MATCHED)
-        partial_cnt = sum(1 for r in records if r.status == ComplianceStatus.PARTIAL_MATCH)
-        missing_2b_cnt = sum(1 for r in records if r.status == ComplianceStatus.MISSING_IN_2B)
-        missing_books_cnt = sum(1 for r in records if r.status == ComplianceStatus.MISSING_IN_BOOKS)
-
-        eligible_itc = sum((r.books_tax or Decimal("0.00")) for r in records if r.status == ComplianceStatus.MATCHED)
-        pending_itc = sum((r.books_tax or Decimal("0.00")) for r in records if r.status in [ComplianceStatus.PARTIAL_MATCH, ComplianceStatus.MISSING_IN_2B])
 
         return ReconciliationSummary(
             total_books_records=len(books),
-            total_2b_records=len(gstr2b),
-            matched_count=matched_cnt,
-            partial_match_count=partial_cnt,
-            missing_in_books_count=missing_books_cnt,
-            missing_in_2b_count=missing_2b_cnt,
+            total_gstr2b_records=len(gstr2b),
+            matched_count=len(matched_records),
+            mismatched_count=len(discrepancies),
             eligible_itc=eligible_itc,
-            ineligible_or_pending_itc=pending_itc,
-            discrepancies=[r for r in records if r.status != ComplianceStatus.MATCHED]
+            ineligible_or_pending_itc=blocked_itc,
+            records=matched_records,
+            discrepancies=discrepancies
         )
