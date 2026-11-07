@@ -1,53 +1,49 @@
 import os
+from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "placeholder_api_key")
+SYSTEM_INSTRUCTION = """
+You are the autonomous Voice IVR Intake Specialist for KSP Consulting & Solutions.
+Your goal is to screen Indian taxpayers, freelance professionals, and business founders over a phone call concisely and accurately.
 
-SYSTEM_INTAKE_PROMPT = """
-You are the senior intake auditor at KSP Consulting & Solutions in Hyderabad.
-Your job is to screen inbound callers who want to file their Income Tax Return in India.
-Follow this statutory protocol:
-1. Greet the caller professionally and ask whether they earn primarily from Salary or Professional/Freelance receipts.
-2. If salaried: Ask if they have total income above ₹50 Lakhs or capital gains from stocks/crypto.
-   - If salary <= ₹50 Lakhs and no capital gains -> Recommend ITR-1 (SAHAJ).
-   - If stock trading exists -> Recommend ITR-2.
-3. If freelance/consultant (Section 194J): Explain that under Section 44ADA they can declare 50% of gross receipts as profit under ITR-4 (SUGAM).
-4. Inform them that an SMS link will be sent to upload their bank statement for automated 60-second processing.
-Tone: Grounded, polite, precise Indian English. Keep turns brief (under 2 sentences) for telephone clarity.
+Rules for Voice Phone Responses:
+1. Speak in clear, complete conversational sentences. Keep the total answer to 2 or 3 complete sentences so text-to-speech reads smoothly.
+2. Provide direct answers: recommend ITR-4 under Section 44ADA for technical/freelance professionals under 75 Lakhs, ITR-1 for salaried/interest, or note statutory audit requirements under Section 44AB.
+3. Never use markdown asterisks (*), hashtags, bullets, or emojis because this output is read verbatim by a telephone voice engine.
 """
 
 class GeminiVoiceIVRAgent:
     def __init__(self):
-        self.client = genai.Client(api_key=GEMINI_API_KEY)
-        self.model_name = "gemini-2.5-flash"
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        self.client = genai.Client(api_key=api_key) if api_key else genai.Client()
+        self.model_name = "gemini-3.8-flash"
 
-    def generate_ivr_turn(self, conversation_history: list, user_speech: str) -> str:
+    def generate_ivr_turn(self, conversation_history: List[Dict[str, str]], user_input: str) -> str:
         """
-        Generates the next conversational prompt for the caller.
+        Processes a multi-turn conversation turn and returns a spoken-dialogue response.
         """
         contents = []
         for msg in conversation_history:
-            contents.append(
-                types.Content(
-                    role=msg["role"],
-                    parts=[types.Part.from_text(text=msg["content"])]
-                )
-            )
-        contents.append(
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_speech)]
-            )
+            role = "user" if msg.get("role") == "user" else "model"
+            content = msg.get("content", "")
+            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=content)]))
+        
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_input)]))
+
+        config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            temperature=0.3,
+            max_output_tokens=1000,
+            top_p=0.95
         )
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INTAKE_PROMPT,
-                temperature=0.2,
-                max_output_tokens=150
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=contents,
+                config=config
             )
-        )
-        return response.text
+            return response.text.strip()
+        except Exception as e:
+            return f"I apologize, but I encountered an error processing your request: {str(e)}"
