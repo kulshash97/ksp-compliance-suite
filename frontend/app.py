@@ -282,50 +282,60 @@ with tab5:
     st.markdown("---")
     if st.button("⚡ Run Autonomous Dual-Regime Audit & Generate Tax Pack", type="primary"):
         itr_engine = ITREngine()
-        
-        # 1. Parse Bank Statement
+
+        # Pre-initialize all data variables with defaults
         bank_savings_int = Decimal("0.00")
         auto_salary = Decimal("0.00")
         bank_name = ""
         ay = "2025-26"
         fy = "2024-25"
-        
-        if bank_pdf:
-            b_text, _ = itr_engine.extract_text_from_pdf(bank_pdf.read(), c_password)
-            b_data = itr_engine.parse_bank_statement(b_text)
-            bank_savings_int = b_data["savings_interest"]
-            auto_salary = b_data["salary_inflow"]
-            bank_name = b_data["name"]
-            ay = b_data["assessment_year"]
-            fy = b_data["financial_year"]
-        
-        # 2. Parse AIS PDF
+
         ais_savings_int = Decimal("0.00")
         ais_tds = Decimal("0.00")
         ais_194j = Decimal("0.00")
         ais_property_sale = Decimal("0.00")
         ais_name = ""
         ais_pan = ""
-        
+        f26_tds = Decimal("0.00")
+
+        # 1. Parse Bank Statement
+        if bank_pdf:
+            try:
+                b_text, _ = itr_engine.extract_text_from_pdf(bank_pdf.read(), c_password)
+                b_data = itr_engine.parse_bank_statement(b_text)
+                bank_savings_int = b_data.get("savings_interest", Decimal("0.00"))
+                auto_salary = b_data.get("salary_inflow", Decimal("0.00"))
+                bank_name = b_data.get("name", "")
+                ay = b_data.get("assessment_year", "2025-26")
+                fy = b_data.get("financial_year", "2024-25")
+            except Exception as e:
+                st.warning(f"Note on Bank Statement: {str(e)}")
+
+        # 2. Parse AIS PDF
         if ais_pdf:
-            a_text, enc_err = itr_engine.extract_text_from_pdf(ais_pdf.read(), c_password)
-            if not enc_err:
-                ais_vals = itr_engine.parse_ais(a_text)
-                ais_savings_int = ais_vals.get("savings_interest", Decimal("0.00"))
-                ais_tds = ais_vals.get("tds", Decimal("0.00"))
-                ais_194j = ais_vals.get("receipts_194j", Decimal("0.00"))
-                ais_property_sale = ais_vals.get("property_sale_sft012", Decimal("0.00"))
-                ais_name = ais_vals.get("name", "")
-                ais_pan = ais_vals.get("pan", "")
+            try:
+                a_text, enc_err = itr_engine.extract_text_from_pdf(ais_pdf.read(), c_password)
+                if not enc_err:
+                    ais_vals = itr_engine.parse_ais(a_text)
+                    ais_savings_int = ais_vals.get("savings_interest", Decimal("0.00"))
+                    ais_tds = ais_vals.get("tds", Decimal("0.00"))
+                    ais_194j = ais_vals.get("receipts_194j", Decimal("0.00"))
+                    ais_property_sale = ais_vals.get("property_sale_sft012", Decimal("0.00"))
+                    ais_name = ais_vals.get("name", "")
+                    ais_pan = ais_vals.get("pan", "")
+            except Exception as e:
+                st.warning(f"Note on AIS Statement: {str(e)}")
 
         # 3. Parse Form 26AS
-        f26_tds = Decimal("0.00")
         if f26as_pdf:
-            f_text, _ = itr_engine.extract_text_from_pdf(f26as_pdf.read(), c_password)
-            f26_data = Form26ASParser().parse(f_text)
-            f26_tds = f26_data.total_tds + f26_data.total_advance_tax
-            if not ais_pan and f26_data.pan:
-                ais_pan = f26_data.pan
+            try:
+                f_text, _ = itr_engine.extract_text_from_pdf(f26as_pdf.read(), c_password)
+                f26_data = Form26ASParser().parse(f_text)
+                f26_tds = f26_data.total_tds + f26_data.total_advance_tax
+                if not ais_pan and f26_data.pan:
+                    ais_pan = f26_data.pan
+            except Exception as e:
+                st.warning(f"Note on Form 26AS: {str(e)}")
 
         effective_tds = max(ais_tds, f26_tds)
         final_pan = c_pan.strip() if c_pan.strip() else (ais_pan or "UNKNOWN_PAN")
@@ -344,7 +354,7 @@ with tab5:
             assessment_year=ay,
             financial_year=fy,
             bank_savings_interest=bank_savings_int,
-            ais_savings_interest=ais_savings_interest,
+            ais_savings_interest=ais_savings_int,
             ais_fd_interest=Decimal("0.00"),
             dividend_income=Decimal("0.00"),
             professional_194j=ais_194j,
