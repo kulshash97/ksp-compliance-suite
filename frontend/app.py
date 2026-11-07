@@ -28,8 +28,29 @@ from backend.app.engines.suite_pdf_generator import (
     generate_audit_escrow_pdf,
     generate_cma_memo_pdf
 )
+from backend.app.core.payment_gateway import RazorpayPaymentManager
+from frontend.landing_page import render_marketing_landing_page
 
 st.set_page_config(page_title="KSP Consulting & Solutions | Compliance Hub", layout="wide", page_icon="⚖️")
+
+# Top Navigation: Switch between Marketing Overview and Compliance Suite
+view_mode = st.sidebar.radio("Navigation", ["🏢 KSP Overview & Pricing", "⚙️ Compliance & Filing Hub"], index=1)
+
+if view_mode == "🏢 KSP Overview & Pricing":
+    render_marketing_landing_page()
+    st.stop()
+
+# ----------------- LICENSE & ACCESS TOKEN GATE -----------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔑 License & Access Token")
+user_token = st.sidebar.text_input("Enter Active License Token", type="password")
+
+token_data = RazorpayPaymentManager.validate_access_token(user_token) if user_token else None
+
+if token_data:
+    st.sidebar.success(f"Active License: {token_data.get('tier')} ({token_data.get('scope')})")
+else:
+    st.sidebar.info("Free Preview Mode (Downloads locked to authorized tokens)")
 
 st.title("⚖️ KSP Consulting & Solutions — Autonomous Suite")
 st.caption("Rule 36(4) Inward ITC • GSTR-1 vs 3B Liability • Statutory Escrow • 5-Year CMA • Autonomous ITR Hub")
@@ -90,7 +111,6 @@ with tab1:
                     m3.metric("Matched Invoices", f"{summary.matched_count} / {summary.total_books_records}")
                     m4.metric("Actionable Discrepancies", f"{len(summary.discrepancies)}")
 
-                    # Download PDF for Tab 1
                     st.markdown("---")
                     pdf_bytes_t1 = generate_gst_itc_pdf(summary)
                     st.download_button(
@@ -125,7 +145,6 @@ with tab2:
             st.success(f"✅ **STATUS: {s_res.status}**")
             st.info(s_res.remediation_note)
 
-        # Download PDF for Tab 2
         st.markdown("---")
         pdf_bytes_t2 = generate_gst_sales_pdf(s_res)
         st.download_button(
@@ -158,7 +177,6 @@ with tab3:
             st.success(f"🔓 **STATUS: {status.value}**")
             st.write(reason)
 
-        # Download PDF for Tab 3
         st.markdown("---")
         pdf_bytes_t3 = generate_audit_escrow_pdf(ent_name, ent_type.value, Decimal(str(turnover)), digital_tx, status.value, reason)
         st.download_button(
@@ -169,7 +187,7 @@ with tab3:
             type="primary"
         )
 
-# ----------------- TAB 4: CMA -----------------
+# ----------------- TAB 4: CMA FORECAST ENGINE -----------------
 with tab4:
     st.subheader("📈 Bank Loan CMA Data & 5-Year Working Capital Forecasting")
     with st.expander("⚡ Auto-Populate from Tally / Zoho Books Trial Balance (Optional)", expanded=False):
@@ -365,23 +383,28 @@ with tab5:
         for step in res.step_by_step_filing_guide:
             st.info(f"**{step['step']}:** {step['action']}")
 
-        # Download Deliverables
+        # Download Deliverables with License Token Check
         st.markdown("---")
-        d_col1, d_col2 = st.columns(2)
-        with d_col1:
-            pdf_bytes = generate_itr_computation_pdf(final_name, final_pan, res)
-            st.download_button(
-                label="📄 Download 100% Filing-Ready Tax Computation Pack with Step-by-Step Guide (PDF)",
-                data=pdf_bytes,
-                file_name=f"ITR_Computation_{res.assessment_year}_{final_pan}.pdf",
-                mime="application/pdf",
-                type="primary"
-            )
-        with d_col2:
-            json_str = generate_efiling_json(res)
-            st.download_button(
-                label="💻 Download Direct E-Filing Upload Payload (JSON)",
-                data=json_str,
-                file_name=f"ITR_Filing_{res.assessment_year}_{final_pan}.json",
-                mime="application/json"
-            )
+        pdf_bytes = generate_itr_computation_pdf(final_name, final_pan, res)
+        json_str = generate_efiling_json(res)
+
+        if token_data:
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                st.download_button(
+                    label="📄 Download 100% Filing-Ready Tax Computation Pack (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"ITR_Computation_{res.assessment_year}_{final_pan}.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+            with d_col2:
+                st.download_button(
+                    label="💻 Download Direct E-Filing Upload Payload (JSON)",
+                    data=json_str,
+                    file_name=f"ITR_Filing_{res.assessment_year}_{final_pan}.json",
+                    mime="application/json"
+                )
+        else:
+            st.warning("🔒 Official CBDT JSON and Audit PDF download packages are available for licensed sessions.")
+            st.info("💡 You can generate an instant access token via our Razorpay payment flow or enter your active license token in the left sidebar.")
