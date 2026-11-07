@@ -1,10 +1,11 @@
 import io
 from decimal import Decimal
-from typing import List, Any
+from typing import List, Any, Dict
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+
 
 # -------------------------------------------------------------
 # 1. GST RULE 36(4) RECONCILIATION PDF
@@ -168,8 +169,36 @@ def generate_audit_escrow_pdf(ent_name: str, ent_type: str, turnover: Decimal, d
 
 
 # -------------------------------------------------------------
-# 4. CMA BANK LOAN CREDIT APPRAISAL MEMO PDF (SAFE FOR LIST OR OBJECT)
+# 4. CMA BANK LOAN CREDIT APPRAISAL MEMO PDF (FAIL-SAFE EXTRACTION)
 # -------------------------------------------------------------
+def _extract_cma_val(p: Any, *candidate_keys) -> Decimal:
+    """Extracts a numeric field safely across Pydantic models, dicts, and objects."""
+    d: Dict[str, Any] = {}
+    if hasattr(p, 'model_dump'):
+        d = p.model_dump()
+    elif hasattr(p, 'dict'):
+        d = p.dict()
+    elif isinstance(p, dict):
+        d = p
+    else:
+        d = getattr(p, '__dict__', {})
+
+    for k in candidate_keys:
+        if k in d and d[k] is not None:
+            try:
+                return Decimal(str(d[k]))
+            except Exception:
+                pass
+        val = getattr(p, k, None)
+        if val is not None:
+            try:
+                return Decimal(str(val))
+            except Exception:
+                pass
+
+    return Decimal("0.00")
+
+
 def generate_cma_memo_pdf(results: Any) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -194,9 +223,15 @@ def generate_cma_memo_pdf(results: Any) -> bytes:
     story.append(Paragraph("Bank Loan CMA Credit Appraisal Memo", title_style))
     story.append(Spacer(1, 12))
 
-    # Safely unpack list or container object
+    # Safely convert to a list of period projections
     periods = results if isinstance(results, list) else getattr(results, 'periods', [])
-    base_rev = getattr(results, 'base_revenue', periods[0].revenue if periods else Decimal("0.00"))
+
+    # Extract base revenue safely
+    base_rev = Decimal("0.00")
+    if hasattr(results, 'base_revenue'):
+        base_rev = Decimal(str(results.base_revenue))
+    elif periods:
+        base_rev = _extract_cma_val(periods[0], 'gross_sales', 'turnover', 'revenue', 'sales')
 
     headers = ["Financial Metric", "Base Year"] + [f"Year {idx + 1}" for idx in range(len(periods))]
     cma_rows = [headers]
@@ -204,22 +239,22 @@ def generate_cma_memo_pdf(results: Any) -> bytes:
     # Gross Sales
     sales_row = ["Gross Sales (Rs L)", f"{float(base_rev)/100000:,.1f}"]
     for p in periods:
-        rev = getattr(p, 'revenue', getattr(p, 'turnover', Decimal("0.00")))
-        sales_row.append(f"{float(rev)/100000:,.1f}")
+        sales_val = _extract_cma_val(p, 'gross_sales', 'turnover', 'revenue', 'sales')
+        sales_row.append(f"{float(sales_val)/100000:,.1f}")
     cma_rows.append(sales_row)
 
-    # Net Profit / PAT
+    # Profit After Tax / Net Profit
     pat_row = ["Profit After Tax (Rs L)", "-"]
     for p in periods:
-        pat = getattr(p, 'pat', getattr(p, 'net_profit', Decimal("0.00")))
-        pat_row.append(f"{float(pat)/100000:,.1f}")
+        pat_val = _extract_cma_val(p, 'pat', 'net_profit', 'profit_after_tax')
+        pat_row.append(f"{float(pat_val)/100000:,.1f}")
     cma_rows.append(pat_row)
 
     # DSCR
     dscr_row = ["DSCR Ratio", "-"]
     for p in periods:
-        dscr = getattr(p, 'dscr', Decimal("0.00"))
-        dscr_row.append(f"{float(dscr):.2f}")
+        dscr_val = _extract_cma_val(p, 'dscr', 'debt_service_coverage_ratio')
+        dscr_row.append(f"{float(dscr_val):.2f}")
     cma_rows.append(dscr_row)
 
     table = Table(cma_rows, hAlign='LEFT')
