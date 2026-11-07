@@ -246,7 +246,7 @@ with tab5:
     st.subheader("💼 Autonomous ITR Dual-Regime Optimizer & Filing Engine")
     st.caption("Multi-Bank Parsing • Form 26AS/AIS Cross-Check • HRA/24(b) Optimization • E-Filing JSON Generation")
 
-    with st.expander("👤 Client Demographic & File Ingestion", expanded=True):
+    with st.expander("👤 Client Demographic & File Ingestion", expanded=False):
         ci1, ci2, ci3 = st.columns(3)
         with ci1:
             c_name = st.text_input("Taxpayer Legal Name (Auto-fills if empty)", value="")
@@ -265,7 +265,7 @@ with tab5:
         with f4:
             pnl_file = st.file_uploader("4. Stock Capital Gains (XLSX)", type=["xlsx", "csv"], key="itr_cg")
 
-    with st.expander("🏠 Old Regime Tax Exemptions & Deductions Optimizer (Optional Override)", expanded=True):
+    with st.expander("🏠 Old Regime Tax Exemptions & Deductions Optimizer (Optional Override)", expanded=False):
         e1, e2, e3, e4 = st.columns(4)
         with e1:
             actual_rent = st.number_input("Annual Rent Paid (₹)", min_value=0.0, value=0.0, step=20000.0)
@@ -275,3 +275,142 @@ with tab5:
             is_metro = st.checkbox("Resides in Metro City (Delhi, Mumbai, Kolkata, Chennai)", value=False)
         with e3:
             home_loan_int = st.number_input("Home Loan Interest Paid - Sec 24(b) (₹)", min_value=0.0, value=0.0, step=25000.0)
+        with e4:
+            ded_80c = st.number_input("Section 80C (PPF, ELSS, EPF, LIC) (₹)", min_value=0.0, value=0.0, step=25000.0)
+            ded_80d = st.number_input("Section 80D (Health Insurance) (₹)", min_value=0.0, value=0.0, step=5000.0)
+
+    st.markdown("---")
+    if st.button("⚡ Run Autonomous Dual-Regime Audit & Generate Tax Pack", type="primary"):
+        itr_engine = ITREngine()
+        
+        # 1. Parse Bank Statement
+        bank_savings_int = Decimal("0.00")
+        auto_salary = Decimal("0.00")
+        bank_name = ""
+        ay = "2025-26"
+        fy = "2024-25"
+        
+        if bank_pdf:
+            b_text, _ = itr_engine.extract_text_from_pdf(bank_pdf.read(), c_password)
+            b_data = itr_engine.parse_bank_statement(b_text)
+            bank_savings_int = b_data["savings_interest"]
+            auto_salary = b_data["salary_inflow"]
+            bank_name = b_data["name"]
+            ay = b_data["assessment_year"]
+            fy = b_data["financial_year"]
+        
+        # 2. Parse AIS PDF
+        ais_savings_int = Decimal("0.00")
+        ais_tds = Decimal("0.00")
+        ais_194j = Decimal("0.00")
+        ais_property_sale = Decimal("0.00")
+        ais_name = ""
+        ais_pan = ""
+        
+        if ais_pdf:
+            a_text, enc_err = itr_engine.extract_text_from_pdf(ais_pdf.read(), c_password)
+            if not enc_err:
+                ais_vals = itr_engine.parse_ais(a_text)
+                ais_savings_int = ais_vals.get("savings_interest", Decimal("0.00"))
+                ais_tds = ais_vals.get("tds", Decimal("0.00"))
+                ais_194j = ais_vals.get("receipts_194j", Decimal("0.00"))
+                ais_property_sale = ais_vals.get("property_sale_sft012", Decimal("0.00"))
+                ais_name = ais_vals.get("name", "")
+                ais_pan = ais_vals.get("pan", "")
+
+        # 3. Parse Form 26AS
+        f26_tds = Decimal("0.00")
+        if f26as_pdf:
+            f_text, _ = itr_engine.extract_text_from_pdf(f26as_pdf.read(), c_password)
+            f26_data = Form26ASParser().parse(f_text)
+            f26_tds = f26_data.total_tds + f26_data.total_advance_tax
+            if not ais_pan and f26_data.pan:
+                ais_pan = f26_data.pan
+
+        effective_tds = max(ais_tds, f26_tds)
+        final_pan = c_pan.strip() if c_pan.strip() else (ais_pan or "UNKNOWN_PAN")
+        final_name = c_name.strip() if c_name.strip() else (ais_name or bank_name or "Taxpayer")
+        final_salary = auto_salary
+
+        # 4. HRA and Exemption Optimization
+        calc_basic = Decimal(str(basic_sal)) if basic_sal > 0 else (final_salary * Decimal("0.50"))
+        opt_hra = ExemptionOptimizer.calculate_hra(calc_basic, Decimal(str(hra_rec)), Decimal(str(actual_rent)), is_metro)
+        opt_24b = ExemptionOptimizer.calculate_home_loan(Decimal(str(home_loan_int)))
+
+        # 5. Run Dual-Regime Computation
+        res = itr_engine.compute(
+            client_name=final_name,
+            pan=final_pan,
+            assessment_year=ay,
+            financial_year=fy,
+            bank_savings_interest=bank_savings_int,
+            ais_savings_interest=ais_savings_interest,
+            ais_fd_interest=Decimal("0.00"),
+            dividend_income=Decimal("0.00"),
+            professional_194j=ais_194j,
+            property_sale_val=ais_property_sale,
+            stcg=Decimal("0.00"),
+            ltcg=Decimal("0.00"),
+            salary_income=final_salary,
+            business_turnover=Decimal("0.00"),
+            tds_paid=effective_tds,
+            deduction_80c=Decimal(str(ded_80c)),
+            deduction_80d=Decimal(str(ded_80d)),
+            hra_exemption=opt_hra,
+            home_loan_interest_24b=opt_24b
+        )
+
+        st.markdown("---")
+        st.subheader("🎯 Executive Filing Verdict & Dual-Regime Scorecard")
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Recommended Form", res.recommended_form)
+        r2.metric("Gross Total Income", f"₹ {res.gross_total_income:,.2f}")
+        r3.metric("Beneficial Regime", res.recommended_regime)
+        r4.metric("Tax Advantage", f"₹ {res.tax_savings:,.2f}")
+
+        # Comparison Table
+        st.markdown("#### ⚖️ Side-by-Side Tax Comparison")
+        comp_df = pd.DataFrame({
+            "Metric": ["Gross Total Income", "Allowed Deductions / Exemptions", "Net Taxable Income", "Final Tax Payable (inc. Cess)"],
+            "Old Tax Regime": [f"₹ {res.gross_total_income:,.2f}", f"₹ {res.old_regime_deductions:,.2f}", f"₹ {res.old_regime_taxable_income:,.2f}", f"₹ {res.old_regime_tax:,.2f}"],
+            "New Tax Regime (Sec 115BAC)": [f"₹ {res.gross_total_income:,.2f}", f"₹ 75,000 / 50,000 (Std Ded)", f"₹ {res.new_regime_taxable_income:,.2f}", f"₹ {res.new_regime_tax:,.2f}"]
+        })
+        st.table(comp_df)
+
+        if res.audit_flags:
+            st.markdown("#### ⚠️ Compliance Audit Flags")
+            for flag in res.audit_flags:
+                st.warning(flag)
+
+        # Step by Step Blueprint on UI
+        st.markdown("---")
+        st.subheader("🚀 Step-by-Step E-Filing Portal Action Guide")
+        for step in res.step_by_step_filing_guide:
+            st.info(f"**{step['step']}:** {step['action']}")
+
+        # Download Deliverables with License Token Check
+        st.markdown("---")
+        pdf_bytes = generate_itr_computation_pdf(final_name, final_pan, res)
+        json_str = generate_efiling_json(res)
+
+        if token_data:
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                st.download_button(
+                    label="📄 Download 100% Filing-Ready Tax Computation Pack (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"ITR_Computation_{res.assessment_year}_{final_pan}.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+            with d_col2:
+                st.download_button(
+                    label="💻 Download Direct E-Filing Upload Payload (JSON)",
+                    data=json_str,
+                    file_name=f"ITR_Filing_{res.assessment_year}_{final_pan}.json",
+                    mime="application/json"
+                )
+        else:
+            st.warning("🔒 Official CBDT JSON and Audit PDF download packages are available for licensed sessions.")
+            st.info("💡 You can generate an instant access token via our Razorpay payment flow or enter your active license token in the left sidebar.")
