@@ -1,17 +1,9 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
-import io
-import time
 import jwt
 import sys
 from pathlib import Path
-
-# Safe optional import to prevent crashes if speech_recognition is absent
-try:
-    import speech_recognition as sr
-except ImportError:
-    sr = None
 
 # Ensure root directory is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -43,21 +35,6 @@ st.markdown("""
         font-size: 14px;
         color: #475569;
         margin-bottom: 20px;
-    }
-    .metric-card {
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }
-    .badge-success {
-        color: #166534;
-        background-color: #dcfce7;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -131,14 +108,14 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Live hands-free telephony-grade AI intake with automatic speech detection and Indian English voice output.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Echo-isolated voice intake with automatic mic muting during agent speech.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Hands-free calling widget with React prototype dispatcher
+        # Hands-free calling widget with strict echo isolation
         components.html("""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
@@ -155,18 +132,20 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             </div>
 
             <div id="live-speech-box" style="padding: 12px; background: #020617; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 12px; font-size: 13px; color: #38bdf8; min-height: 42px; display: flex; align-items: center;">
-                <span id="speech-preview" style="color: #64748b; font-style: italic;">Spoken words appear here in real time...</span>
+                <span id="speech-preview" style="color: #64748b; font-style: italic;">Tap Start Call to begin...</span>
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
                 <span>Language: Indian English (en-IN)</span>
-                <span id="audio-indicator">🔇 Audio Idle</span>
+                <span id="audio-indicator">🔇 Mic Muted</span>
             </div>
         </div>
 
         <script>
             let inCall = false;
+            let isAgentSpeaking = false;
             let rec = null;
+            let lastSubmitted = "";
             const statusEl = document.getElementById('call-status');
             const previewEl = document.getElementById('speech-preview');
             const btnEl = document.getElementById('main-call-btn');
@@ -176,6 +155,12 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
             function playVoice(text, onDone) {
+                // Strict echo block: silence mic completely while agent speaks
+                isAgentSpeaking = true;
+                if (rec) {
+                    try { rec.abort(); } catch(e){}
+                }
+
                 window.speechSynthesis.cancel();
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.lang = 'en-IN';
@@ -185,32 +170,45 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
                 if (indVoice) utterance.voice = indVoice;
 
-                indicatorEl.innerText = "🗣️ Agent Speaking...";
+                indicatorEl.innerText = "🗣️ Agent Speaking (Mic Muted)";
                 indicatorEl.style.color = "#4ade80";
                 avatarEl.style.background = "#10b981";
+                statusEl.innerText = "Agent speaking...";
 
-                utterance.onend = () => {
-                    indicatorEl.innerText = "🔇 Audio Idle";
-                    indicatorEl.style.color = "#64748b";
+                const resumeMic = () => {
+                    isAgentSpeaking = false;
+                    indicatorEl.innerText = "🎙️ Mic Active";
+                    indicatorEl.style.color = "#38bdf8";
                     avatarEl.style.background = "#2563eb";
+                    statusEl.innerText = "🎙️ Listening to you...";
                     if (onDone) onDone();
                 };
+
+                utterance.onend = () => {
+                    // 500ms safety guard to let speaker reverberation dissipate
+                    setTimeout(resumeMic, 500);
+                };
                 utterance.onerror = () => {
-                    indicatorEl.innerText = "🔇 Audio Idle";
-                    avatarEl.style.background = "#2563eb";
-                    if (onDone) onDone();
+                    setTimeout(resumeMic, 500);
                 };
 
                 window.speechSynthesis.speak(utterance);
             }
 
             function sendToStreamlit(text) {
+                const cleaned = text.trim();
+                // Filter out short echo noise or identical repeats
+                if (!cleaned || cleaned.length < 3 || cleaned === lastSubmitted || isAgentSpeaking) {
+                    return;
+                }
+                lastSubmitted = cleaned;
+
                 const parentDoc = window.parent.document;
                 const textarea = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]') || parentDoc.querySelector('textarea');
                 
                 if (textarea) {
                     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                    nativeSetter.call(textarea, text);
+                    nativeSetter.call(textarea, cleaned);
                     textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     textarea.dispatchEvent(new Event('change', { bubbles: true }));
 
@@ -238,8 +236,8 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 r.lang = 'en-IN';
 
                 r.onstart = () => {
-                    if (inCall) {
-                        statusEl.innerText = "🎙️ Listening... (speak now)";
+                    if (inCall && !isAgentSpeaking) {
+                        statusEl.innerText = "🎙️ Listening to you...";
                         statusEl.style.color = "#38bdf8";
                         indicatorEl.innerText = "🎙️ Mic Active";
                         indicatorEl.style.color = "#38bdf8";
@@ -247,6 +245,8 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 };
 
                 r.onresult = (e) => {
+                    if (isAgentSpeaking) return; // Drop echo audio
+
                     let transcript = '';
                     for (let i = e.resultIndex; i < e.results.length; ++i) {
                         transcript += e.results[i][0].transcript;
@@ -267,10 +267,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 };
 
                 r.onend = () => {
-                    if (inCall) {
+                    if (inCall && !isAgentSpeaking) {
                         setTimeout(() => {
                             try { r.start(); } catch(err){}
-                        }, 400);
+                        }, 300);
                     }
                 };
 
@@ -295,14 +295,15 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     });
                 } else {
                     inCall = false;
+                    isAgentSpeaking = false;
                     window.speechSynthesis.cancel();
                     if (rec) rec.abort();
                     btnEl.innerText = "📞 Start Call";
                     btnEl.style.background = "#22c55e";
                     statusEl.innerText = "Call ended";
                     statusEl.style.color = "#94a3b8";
-                    indicatorEl.innerText = "🔇 Audio Idle";
-                    previewEl.innerText = "Spoken words appear here in real time...";
+                    indicatorEl.innerText = "🔇 Mic Muted";
+                    previewEl.innerText = "Tap Start Call to begin...";
                     previewEl.style.color = "#64748b";
                     previewEl.style.fontStyle = "italic";
                 }
@@ -347,7 +348,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     u.lang = 'en-IN';
                     u.rate = 1.0;
                     const voices = window.speechSynthesis.getVoices();
-                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
+                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
                     if (ind) u.voice = ind;
                     window.speechSynthesis.speak(u);
                 </script>
@@ -360,8 +361,8 @@ if app_mode == "🎙️ Live Voice Intake Desk":
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
-        * **Real-Time Voice Activity Detection:** As soon as you finish speaking your sentence, it auto-submits to Gemini without waiting or hanging.
-        * **Hands-Free Response Audio:** The agent speaks the answer aloud automatically using Indian English neural synthesis.
+        * **Echo Cancellation Lock:** The microphone turns completely off while the agent speaks so the speaker sound doesn't re-trigger Gemini.
+        * **Turn-Taking Guard:** Only activates the mic after the agent finishes speaking.
         * **Form & Regime Intelligence:** Evaluates Sections 44ADA, 44AB, and ITR-1 vs ITR-2 for salary and loan scenarios.
         * **Lead Qualification:** Captures assessee names, phone numbers, and engagement scope.
         """)
