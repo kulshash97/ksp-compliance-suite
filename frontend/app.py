@@ -87,6 +87,33 @@ if "ivr_agent" not in st.session_state:
 if "voice_history" not in st.session_state:
     st.session_state.voice_history = []
 
+if "latest_agent_speech" not in st.session_state:
+    st.session_state.latest_agent_speech = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?"
+
+
+# --- HANDLE QUERY PARAMETER VOICE SUBMISSION ---
+
+qp = st.query_params
+if "voice_turn" in qp and qp["voice_turn"]:
+    spoken_text = qp["voice_turn"].strip()
+    # Clear query param to avoid re-triggering on reload
+    st.query_params.clear()
+
+    if spoken_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != spoken_text):
+        st.session_state.voice_history.append({"role": "user", "content": spoken_text})
+        
+        if st.session_state.ivr_agent:
+            turn_result = st.session_state.ivr_agent.generate_ivr_turn(
+                conversation_history=st.session_state.voice_history[:-1],
+                user_input=spoken_text
+            )
+            agent_reply = turn_result.get("reply", "")
+        else:
+            agent_reply = "Welcome to KSP Consulting. Please check back shortly as the tax engine initializes."
+
+        st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
+        st.session_state.latest_agent_speech = agent_reply
+
 
 # --- SIDEBAR WORKFLOW ---
 
@@ -115,15 +142,20 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct mobile & desktop voice calling with continuous Speech-to-Speech loop and acoustic echo isolation.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Zero-latency in-browser telephony engine executing directly in Streamlit session state.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Autonomous WebRTC Voice Calling Widget
-        components.html("""
+        # Prepare speech audio safely for JS injection
+        escaped_speech = st.session_state.latest_agent_speech.replace('"', '\\"').replace('\n', ' ').replace("'", "\\'")
+        has_history = len(st.session_state.voice_history) > 0
+        should_speak = "true" if has_history else "false"
+
+        # Embedded Console: Uses window.parent URL query params to route speech directly into Streamlit
+        components.html(f"""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -138,80 +170,56 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 </button>
             </div>
 
-            <div id="call-log" style="height: 250px; overflow-y: auto; background: #020617; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.6; color: #cbd5e1; border: 1px solid #1e293b; margin-bottom: 12px;">
-                <p style="color: #64748b; margin: 0;">Tap 'Start Call' to begin a continuous voice conversation with the agent...</p>
+            <div id="live-speech-box" style="padding: 12px 14px; background: #020617; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 12px; font-size: 13px; color: #38bdf8; min-height: 44px; display: flex; align-items: center;">
+                <span id="speech-preview" style="color: #64748b; font-style: italic;">Tap Start Call to begin hands-free conversation...</span>
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b; padding: 0 4px;">
-                <span>Language: Indian English (en-IN)</span>
+                <span>Accent: Indian English (en-IN)</span>
                 <span id="audio-indicator" style="font-weight: 600;">🔇 Audio Idle</span>
             </div>
         </div>
 
         <script>
-            let inCall = false;
+            let inCall = sessionStorage.getItem('ksp_in_call') === 'true';
             let isAgentSpeaking = false;
             let rec = null;
-            let conversationHistory = [];
             const statusEl = document.getElementById('call-status');
-            const logEl = document.getElementById('call-log');
+            const previewEl = document.getElementById('speech-preview');
             const btnEl = document.getElementById('main-call-btn');
             const indicatorEl = document.getElementById('audio-indicator');
             const avatarEl = document.getElementById('call-avatar');
 
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-            function appendLog(sender, text, color) {
-                const p = document.createElement('p');
-                p.style.margin = "8px 0";
-                p.innerHTML = `<strong style="color: ${color};">${sender}:</strong> ${text}`;
-                logEl.appendChild(p);
-                logEl.scrollTop = logEl.scrollHeight;
-            }
-
-            // Mobile-Safe Audio Context Unlocker
-            function unlockAudioContext() {
-                try {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
-                    if (AudioContext) {
-                        const ctx = new AudioContext();
-                        if (ctx.state === 'suspended') {
-                            ctx.resume();
-                        }
-                    }
-                } catch(e){}
-            }
-
-            // Chunked TTS Speech Engine
-            function speakAgentResponse(fullText, onComplete) {
+            function playChunkedVoice(fullText, onDone) {
                 isAgentSpeaking = true;
-                if (rec) {
-                    try { rec.abort(); } catch(e){}
-                }
+                if (rec) {{
+                    try {{ rec.abort(); }} catch(e){{}}
+                }}
                 window.speechSynthesis.cancel();
 
-                const cleanedText = fullText.replace(/\[CALL_ENDED\]/g, '').replace(/CALL_ENDED/g, '').trim();
-                const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
-                let sIdx = 0;
+                const cleanedText = fullText.replace(/\\[CALL_ENDED\\]/g, '').replace(/CALL_ENDED/g, '').trim();
+                let sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
+                let sIndex = 0;
 
                 indicatorEl.innerText = "🗣️ Agent Speaking (Mic Muted)";
                 indicatorEl.style.color = "#4ade80";
                 avatarEl.style.background = "#10b981";
                 statusEl.innerText = "Agent speaking...";
 
-                function speakNextSentence() {
-                    if (sIdx >= sentences.length) {
-                        // 700ms reverberation buffer before unmuting mic
-                        setTimeout(resumeListening, 700);
+                function speakNextSentence() {{
+                    if (sIndex >= sentences.length) {{
+                        setTimeout(resumeMic, 600);
                         return;
-                    }
+                    }}
 
-                    const segment = sentences[sIdx].trim();
-                    if (!segment) {
-                        sIdx++;
+                    const segment = sentences[sIndex].trim();
+                    if (!segment) {{
+                        sIndex++;
                         speakNextSentence();
                         return;
-                    }
+                    }}
 
                     const utterance = new SpeechSynthesisUtterance(segment);
                     utterance.lang = 'en-IN';
@@ -221,115 +229,102 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
                     if (indVoice) utterance.voice = indVoice;
 
-                    utterance.onend = () => {
-                        sIdx++;
+                    utterance.onend = () => {{
+                        sIndex++;
                         speakNextSentence();
-                    };
-                    utterance.onerror = () => {
-                        sIdx++;
+                    }};
+                    utterance.onerror = () => {{
+                        sIndex++;
                         speakNextSentence();
-                    };
+                    }};
 
                     window.speechSynthesis.speak(utterance);
-                }
+                }}
 
-                function resumeListening() {
+                function resumeMic() {{
                     isAgentSpeaking = false;
                     indicatorEl.innerText = "🎙️ Mic Active";
                     indicatorEl.style.color = "#38bdf8";
                     avatarEl.style.background = "#2563eb";
                     statusEl.innerText = "🎙️ Listening to you...";
 
-                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('have a wonderful day')) {
-                        endCallSession();
+                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('have a wonderful day')) {{
+                        disconnectCall();
                         return;
-                    }
+                    }}
 
-                    if (inCall && rec) {
-                        try { rec.start(); } catch(err){}
-                    }
-                    if (onComplete) onComplete();
-                }
+                    if (inCall && rec) {{
+                        try {{ rec.start(); }} catch(err){{}}
+                    }}
+                    if (onDone) onDone();
+                }}
 
                 speakNextSentence();
-            }
+            }}
 
-            async function processUserSpeech(userText) {
-                appendLog("You", userText, "#38bdf8");
+            function submitSpokenTurn(text) {{
+                const cleaned = text.trim();
+                if (!cleaned || cleaned.length < 2 || isAgentSpeaking) return;
+
                 statusEl.innerText = "⚡ Agent analyzing...";
-                indicatorEl.innerText = "⚡ Thinking...";
+                indicatorEl.innerText = "⚡ Processing...";
+                previewEl.innerText = "You: " + cleaned;
 
-                try {
-                    const res = await fetch('/api/voice/chat', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            user_input: userText,
-                            conversation_history: conversationHistory
-                        })
-                    });
-                    const data = await res.json();
-                    const agentReply = data.reply || "I noted that. Could you please share your annual gross income?";
+                // Transmit speech directly to Streamlit via URL parameter
+                const parentUrl = new URL(window.parent.location.href);
+                parentUrl.searchParams.set("voice_turn", cleaned);
+                window.parent.location.href = parentUrl.toString();
+            }}
 
-                    appendLog("KSP Agent", agentReply, "#4ade80");
-                    conversationHistory.push({role: "user", content: userText});
-                    conversationHistory.push({role: "model", content: agentReply});
-
-                    speakAgentResponse(agentReply);
-                } catch(err) {
-                    appendLog("System", "Could not reach tax backend. Retrying...", "#ef4444");
-                    isAgentSpeaking = false;
-                    if (inCall && rec) {
-                        setTimeout(() => { try { rec.start(); } catch(e){} }, 1000);
-                    }
-                }
-            }
-
-            function setupSpeechRecognizer() {
-                if (!SpeechRec) {
-                    alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
-                    return null;
-                }
+            function initRec() {{
+                if (!SpeechRec) return null;
                 const r = new SpeechRec();
                 r.continuous = false;
-                r.interimResults = false;
+                r.interimResults = true;
                 r.lang = 'en-IN';
 
-                r.onstart = () => {
-                    if (inCall && !isAgentSpeaking) {
+                r.onstart = () => {{
+                    if (inCall && !isAgentSpeaking) {{
                         statusEl.innerText = "🎙️ Listening to you...";
                         statusEl.style.color = "#38bdf8";
                         indicatorEl.innerText = "🎙️ Mic Active";
                         indicatorEl.style.color = "#38bdf8";
-                    }
-                };
+                    }}
+                }};
 
-                r.onresult = (e) => {
+                r.onresult = (e) => {{
                     if (isAgentSpeaking) return;
-                    const transcript = e.results[0][0].transcript.trim();
-                    if (transcript.length > 1) {
-                        processUserSpeech(transcript);
-                    }
-                };
 
-                r.onerror = (e) => {
-                    if (inCall && e.error !== 'no-speech') {
-                        console.warn("Speech error:", e.error);
-                    }
-                };
+                    let transcript = '';
+                    for (let i = e.resultIndex; i < e.results.length; ++i) {{
+                        transcript += e.results[i][0].transcript;
+                    }}
+                    previewEl.innerText = transcript;
+                    previewEl.style.color = "#38bdf8";
+                    previewEl.style.fontStyle = "normal";
 
-                r.onend = () => {
-                    if (inCall && !isAgentSpeaking) {
-                        setTimeout(() => {
-                            try { r.start(); } catch(err){}
-                        }, 400);
-                    }
-                };
+                    if (e.results[0].isFinal) {{
+                        submitSpokenTurn(transcript);
+                    }}
+                }};
+
+                r.onerror = (e) => {{
+                    if (inCall && e.error !== 'no-speech') console.warn(e.error);
+                }};
+
+                r.onend = () => {{
+                    if (inCall && !isAgentSpeaking) {{
+                        setTimeout(() => {{
+                            try {{ r.start(); }} catch(err){{}}
+                        }}, 400);
+                    }}
+                }};
 
                 return r;
-            }
+            }}
 
-            function endCallSession() {
+            function disconnectCall() {{
+                sessionStorage.setItem('ksp_in_call', 'false');
                 inCall = false;
                 isAgentSpeaking = false;
                 window.speechSynthesis.cancel();
@@ -339,44 +334,54 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 statusEl.innerText = "Call completed";
                 statusEl.style.color = "#94a3b8";
                 indicatorEl.innerText = "🔇 Audio Idle";
-                indicatorEl.style.color = "#64748b";
-                avatarEl.style.background = "#2563eb";
-            }
+                previewEl.innerText = "Call ended. Tap Start Call to connect again.";
+                previewEl.style.color = "#64748b";
+                previewEl.style.fontStyle = "italic";
+            }}
 
-            async function toggleCall() {
-                if (!inCall) {
-                    // Pre-authorize mic in user click gesture thread
-                    try {
-                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                            await navigator.mediaDevices.getUserMedia({ audio: true });
-                        }
-                    } catch(err) {
-                        console.warn("Microphone pre-check:", err);
-                    }
-                    unlockAudioContext();
-
+            function toggleCall() {{
+                if (!inCall) {{
+                    sessionStorage.setItem('ksp_in_call', 'true');
                     inCall = true;
                     btnEl.innerText = "🔴 End Call";
                     btnEl.style.background = "#ef4444";
-                    logEl.innerHTML = "";
-                    statusEl.innerText = "Connecting call...";
-                    
-                    rec = setupSpeechRecognizer();
-                    const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
-                    appendLog("KSP Agent", greeting, "#4ade80");
-                    
-                    speakAgentResponse(greeting);
-                } else {
-                    endCallSession();
-                }
-            }
+                    statusEl.innerText = "Connecting...";
+
+                    rec = initRec();
+                    const greeting = "{escaped_speech}";
+                    previewEl.innerText = greeting;
+
+                    playChunkedVoice(greeting, () => {{
+                        if (inCall && rec) {{
+                            try {{ rec.start(); }} catch(e){{}}
+                        }}
+                    }});
+                }} else {{
+                    disconnectCall();
+                }}
+            }}
+
+            // Resume call state automatically across turns
+            if (inCall) {{
+                btnEl.innerText = "🔴 End Call";
+                btnEl.style.background = "#ef4444";
+                rec = initRec();
+                const latestReply = "{escaped_speech}";
+                previewEl.innerText = latestReply;
+                
+                playChunkedVoice(latestReply, () => {{
+                    if (inCall && rec) {{
+                        try {{ rec.start(); }} catch(e){{}}
+                    }}
+                }});
+            }}
         </script>
-        """, height=380)
+        """, height=220)
 
         st.markdown("---")
-        st.subheader("💬 Fallback Text Chat")
+        st.subheader("💬 Call Transcript & Multi-Turn Dialogue")
 
-        chat_container = st.container(height=260)
+        chat_container = st.container(height=320)
         with chat_container:
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
@@ -384,7 +389,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 clean_content = msg["content"].replace("[CALL_ENDED]", "").replace("CALL_ENDED", "").strip()
                 st.chat_message(msg["role"], avatar=avatar).write(clean_content)
 
-        user_text = st.chat_input("Or type your tax inquiry here...")
+        user_text = st.chat_input("Speak via the Call Console above or type here...")
         if user_text:
             st.session_state.voice_history.append({"role": "user", "content": user_text})
             with chat_container:
@@ -402,18 +407,20 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
                 st.chat_message("assistant", avatar="⚖️").write(agent_reply)
                 st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
+                st.session_state.latest_agent_speech = agent_reply
 
         if st.button("🔄 Reset Conversation History", use_container_width=True):
             st.session_state.voice_history = []
+            st.session_state.latest_agent_speech = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?"
             st.rerun()
 
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
-        * **Full WebRTC Mic Pre-Auth:** Requests microphone permissions during the click gesture so mobile and desktop browsers never block speech.
-        * **Direct REST Audio Engine:** Bypasses iframe DOM injection bugs by communicating directly with the `/api/voice/chat` endpoint.
-        * **700ms Echo Guard:** Mic remains completely muted during synthesis and unlocks only after room reverberation dissipates.
-        * **Automatic Form Routing:** Accurately routes to ITR-1, ITR-2, ITR-3, and Section 44ADA.
+        * **Direct Python State Execution:** Bypasses failed HTTP fetch calls by executing turns directly inside Streamlit Python.
+        * **Acoustic Echo Lock:** Mic is strictly muted while the agent speaks and unlocks 600ms after speech ends.
+        * **Form & Regime Intelligence:** Evaluates Sections 44ADA, 44AB, and ITR-1 vs ITR-2 vs ITR-3.
+        * **Lead Qualification:** Captures assessee names, phone numbers, and engagement scope.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
