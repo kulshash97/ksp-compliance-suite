@@ -2,7 +2,14 @@ import os
 import re
 from typing import List, Dict, Any
 
+
 class GeminiVoiceIVRAgent:
+    """
+    Autonomous Voice IVR Agent for KSP Consulting & Solutions.
+    Engineered with phonetic statutory formatting, strict conversational brevity,
+    and automatic call-termination signal handling.
+    """
+
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self._client = None
@@ -20,58 +27,73 @@ class GeminiVoiceIVRAgent:
                 return None
         return self._client
 
-    def _format_for_telephony_tts(self, text: str) -> str:
+    def _clean_spoken_text(self, text: str) -> str:
         """
-        Formats statutory acronyms with hyphens and spaces so browser
-        text-to-speech synthesizers pronounce them clearly without slurring.
+        Formats acronyms, sections, and removes markdown/internal tags
+        so that text-to-speech engines enunciate them clearly without slurring.
         """
-        # Format Section 44ADA / 44AB
+        # Strip internal protocol flags completely so TTS never speaks them
+        text = text.replace("[CALL_ENDED]", "").replace("CALL_ENDED", "").strip()
+
+        # Phonetic pronunciation spacing for Indian tax provisions
         text = re.sub(r'44ADA', '44 A-D-A', text, flags=re.IGNORECASE)
         text = re.sub(r'44AB', '44 A-B', text, flags=re.IGNORECASE)
         text = re.sub(r'44AA', '44 A-A', text, flags=re.IGNORECASE)
         text = re.sub(r'115BAC', '115 B-A-C', text, flags=re.IGNORECASE)
-        
-        # Format ITR forms
         text = re.sub(r'\bITR-(\d)\b', r'I-T-R \1', text, flags=re.IGNORECASE)
         text = re.sub(r'\bITR(\d)\b', r'I-T-R \1', text, flags=re.IGNORECASE)
-        
-        # Remove markdown asterisks or hash symbols that TTS engines read out loud
-        text = text.replace('*', '').replace('#', '').replace('_', '')
+
+        # Remove markdown symbols that TTS engines read out loud
+        text = text.replace('*', '').replace('#', '').replace('_', '').replace('`', '')
         return text.strip()
 
-    def generate_ivr_turn(self, conversation_history: List[Dict[str, str]], user_input: str) -> str:
-        # Check hangup intent immediately
-        hangup_words = ["bye", "goodbye", "disconnect", "end call", "cut call", "no thanks", "nothing else"]
+    def generate_ivr_turn(self, conversation_history: List[Dict[str, str]], user_input: str) -> dict:
+        """
+        Executes a voice conversational turn.
+        Returns a dict containing:
+          - reply: str (cleaned, phonetically formatted response)
+          - call_ended: bool (True if the call has reached conclusion)
+        """
         user_lower = user_input.lower().strip()
-        if any(w in user_lower for w in ["bye", "goodbye", "cut the call", "end the call"]):
-            return "Thank you for contacting KSP Consulting. Have a wonderful day ahead. Goodbye. [CALL_ENDED]"
+        hangup_words = [
+            "bye", "goodbye", "cut call", "end call", "disconnect",
+            "no thank you", "no thanks", "nothing else", "that is all"
+        ]
+
+        if any(w in user_lower for w in hangup_words):
+            return {
+                "reply": "Thank you for contacting KSP Consulting. Have a wonderful day ahead. Goodbye.",
+                "call_ended": True
+            }
 
         if not self.client:
-            return (
-                "Welcome to KSP Consulting. Our AI voice desk is currently undergoing maintenance. "
-                "Please reach our advisory desk directly at support@kspconsulting.in."
-            )
+            return {
+                "reply": "Welcome to KSP Consulting. Our AI voice desk is currently initializing. Please contact support@kspconsulting.in.",
+                "call_ended": False
+            }
 
         system_instruction = (
             "You are the autonomous voice tax intake agent for KSP Consulting & Solutions in India. "
-            "Follow these strict telephony speaking rules:\n"
-            "1. BREVITY: Keep every turn under 35 words (1 or 2 crisp sentences only). "
-            "Never generate paragraphs or bullet points; long text will be cut off by the browser audio buffer.\n"
-            "2. PRONUNCIATION: Always write statutory references as 'Section 44 A-D-A', 'Section 44 A-B', "
-            "'I-T-R 1', 'I-T-R 2', 'I-T-R 3', or 'I-T-R 4'.\n"
-            "3. STATUTORY LOGIC: "
-            "- Freelancers under ₹75 Lakhs without stock trading -> Section 44 A-D-A via I-T-R 4.\n"
-            "- Salaried with capital gains/stocks -> I-T-R 2.\n"
-            "- Freelance + Stock capital gains -> I-T-R 3 (cannot use I-T-R 4).\n"
-            "4. EMAIL/LEAD CAPTURE: Confirm name, email, and phone number succinctly. "
-            "If an email sounds phonetically distorted, confirm it once gently.\n"
-            "5. CALL CONCLUSION: When the user confirms all details, conclude with: "
-            "'Thank you for choosing KSP Consulting. Have a wonderful day ahead. Goodbye. [CALL_ENDED]'"
+            "Strict Guidelines:\n"
+            "1. MAXIMUM BREVITY: Respond in 1 or 2 concise sentences only (under 30 words). "
+            "Never generate long lists or paragraphs; keep it natural for telephony.\n"
+            "2. PRONUNCIATION: Refer to forms as 'I-T-R 1', 'I-T-R 2', 'I-T-R 3', 'I-T-R 4', "
+            "and sections as 'Section 44 A-D-A' or 'Section 44 A-B'.\n"
+            "3. STATUTORY LOGIC:\n"
+            "   - Salary + Stock capital gains -> Form I-T-R 2.\n"
+            "   - Freelance under ₹75 Lakhs without stock trading -> Section 44 A-D-A via Form I-T-R 4.\n"
+            "   - Freelance + Stock capital gains -> Form I-T-R 3 (cannot file I-T-R 4).\n"
+            "   - Salaried under ₹50 Lakhs with no capital gains -> Form I-T-R 1.\n"
+            "4. LEAD CAPTURE: Gather the taxpayer's name, email, and mobile number efficiently. "
+            "If an email sounds distorted, confirm it once gently.\n"
+            "5. COMPLETION: When intake is finalized or caller confirms goodbye, conclude with: "
+            "'Thank you for choosing KSP Consulting. Goodbye.'"
         )
 
         try:
             contents = [f"System: {system_instruction}"]
-            for turn in conversation_history[-6:]:  # Keep recent context window for high response speed
+            # Maintain the recent 6 turns for rapid inference speed
+            for turn in conversation_history[-6:]:
                 role = "User" if turn.get("role") == "user" else "Assistant"
                 contents.append(f"{role}: {turn.get('content')}")
             contents.append(f"User: {user_input}")
@@ -81,6 +103,15 @@ class GeminiVoiceIVRAgent:
                 contents="\n".join(contents),
             )
             raw_text = response.text.strip()
-            return self._format_for_telephony_tts(raw_text)
-        except Exception as e:
-            return f"I had trouble hearing that clearly. Could you please repeat your tax question?"
+            is_end = "goodbye" in raw_text.lower() or "have a wonderful day" in raw_text.lower()
+            clean_reply = self._clean_spoken_text(raw_text)
+
+            return {
+                "reply": clean_reply,
+                "call_ended": is_end
+            }
+        except Exception:
+            return {
+                "reply": "I could not hear that clearly. Could you please repeat your tax question?",
+                "call_ended": False
+            }

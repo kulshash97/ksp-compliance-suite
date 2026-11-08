@@ -115,14 +115,14 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Hands-free telephony-grade AI intake with chunked Indian English neural audio and acoustic echo cancellation.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct mobile and desktop voice calling with echo-lock and neural synthesis.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Hands-Free Call Console with Sentence Chunking & Strict Mute Lock
+        # Hands-Free Mobile & Desktop Calling Console
         components.html("""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
@@ -143,7 +143,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
-                <span>Accent: Indian English (en-IN)</span>
+                <span>Mobile Audio: Active en-IN</span>
                 <span id="audio-indicator">🔇 Mic Muted</span>
             </div>
         </div>
@@ -161,7 +161,16 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-            // Sentence Chunking Engine (Prevents Chrome 15s audio cutoff bug)
+            // Unlock mobile audio context
+            function unlockMobileAudio() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (ctx.state === 'suspended') {
+                        ctx.resume();
+                    }
+                } catch(e){}
+            }
+
             function playChunkedVoice(fullText, onDone) {
                 isAgentSpeaking = true;
                 if (rec) {
@@ -169,10 +178,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 }
                 window.speechSynthesis.cancel();
 
-                // Clean call end flags from spoken output
-                const cleanedText = fullText.replace(/\[CALL_ENDED\]/g, '').trim();
-
-                // Split by punctuation
+                const cleanedText = fullText.replace(/\[CALL_ENDED\]/g, '').replace(/CALL_ENDED/g, '').trim();
                 let sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
                 let sIndex = 0;
 
@@ -183,7 +189,6 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
                 function speakSentence() {
                     if (sIndex >= sentences.length) {
-                        // 450ms reverberation buffer before unmuting mic
                         setTimeout(resumeMic, 450);
                         return;
                     }
@@ -222,8 +227,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     avatarEl.style.background = "#2563eb";
                     statusEl.innerText = "🎙️ Listening to you...";
 
-                    // If call ended flag was present, hang up automatically
-                    if (fullText.includes('[CALL_ENDED]')) {
+                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('call completed')) {
                         disconnectCall();
                         return;
                     }
@@ -331,6 +335,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             }
 
             function toggleCall() {
+                unlockMobileAudio();
                 if (!inCall) {
                     inCall = true;
                     btnEl.innerText = "🔴 End Call";
@@ -361,7 +366,8 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
                 avatar = "👤" if msg["role"] == "user" else "⚖️"
-                st.chat_message(msg["role"], avatar=avatar).write(msg["content"].replace("[CALL_ENDED]", ""))
+                clean_content = msg["content"].replace("[CALL_ENDED]", "").replace("CALL_ENDED", "").strip()
+                st.chat_message(msg["role"], avatar=avatar).write(clean_content)
 
         user_text = st.chat_input("Speak via the Call Console above or type here...")
         if user_text:
@@ -371,19 +377,19 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 
                 if st.session_state.ivr_agent:
                     with st.spinner("Evaluating statutory provisions..."):
-                        agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
+                        turn_data = st.session_state.ivr_agent.generate_ivr_turn(
                             conversation_history=st.session_state.voice_history[:-1],
                             user_input=user_text
                         )
+                        agent_reply = turn_data.get("reply", "")
                 else:
-                    agent_reply = "Welcome to KSP Consulting. Please check back shortly as the AI desk initializes."
+                    agent_reply = "Welcome to KSP Consulting. The tax desk is initializing."
 
-                display_text = agent_reply.replace("[CALL_ENDED]", "").strip()
-                st.chat_message("assistant", avatar="⚖️").write(display_text)
+                st.chat_message("assistant", avatar="⚖️").write(agent_reply)
                 st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
 
-            # Trigger chunked speech output
-            clean_speech = display_text.replace('"', '\\"').replace('\n', ' ')
+            # Clean playback without raw tags
+            clean_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
             components.html(f"""
                 <script>
                     window.speechSynthesis.cancel();
@@ -411,10 +417,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
-        * **Chunked Neural TTS:** Eliminates the Chrome 15-second speech buffer timeout bug.
-        * **Acoustic Echo Lock:** Mic is strictly muted while the agent is speaking to prevent feedback loops.
-        * **Clear Statutory Enunciation:** Pronounces 'Section 44 A-D-A', 'Section 44 A-B', and 'I-T-R 3' clearly.
-        * **Automatic Hangup Detection:** Detects when the call has concluded and resets the line cleanly.
+        * **Mobile Audio Warmup:** Unlocks browser audio context on mobile to prevent cutoffs.
+        * **Zero Spoken Tags:** Cleanly strips internal flags like `[CALL_ENDED]` so the voice never says them aloud.
+        * **Pronunciation Spacing:** Explicitly enunciates 'Section 44 A-D-A' and 'I-T-R 3'.
+        * **Full Compliance Engine:** Tabs 1 through 5 handle GST Rule 36(4), Rule 88C, Section 44AB audits, and 5-year loan CMAs.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
