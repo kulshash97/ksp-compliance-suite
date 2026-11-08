@@ -96,7 +96,6 @@ if "latest_agent_speech" not in st.session_state:
 qp = st.query_params
 if "voice_turn" in qp and qp["voice_turn"]:
     spoken_text = qp["voice_turn"].strip()
-    # Clear query param to avoid re-triggering on reload
     st.query_params.clear()
 
     if spoken_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != spoken_text):
@@ -149,13 +148,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Prepare speech audio safely for JS injection
-        escaped_speech = st.session_state.latest_agent_speech.replace('"', '\\"').replace('\n', ' ').replace("'", "\\'")
-        has_history = len(st.session_state.voice_history) > 0
-        should_speak = "true" if has_history else "false"
+        escaped_speech = st.session_state.latest_agent_speech.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ').replace("'", "\\'")
 
-        # Embedded Console: Uses window.parent URL query params to route speech directly into Streamlit
-        components.html(f"""
+        # Raw HTML template string (NO f-string to prevent syntax errors with JavaScript braces)
+        html_template = """
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -184,6 +180,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             let inCall = sessionStorage.getItem('ksp_in_call') === 'true';
             let isAgentSpeaking = false;
             let rec = null;
+            const currentSpeechText = "__AGENT_SPEECH__";
             const statusEl = document.getElementById('call-status');
             const previewEl = document.getElementById('speech-preview');
             const btnEl = document.getElementById('main-call-btn');
@@ -194,9 +191,9 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
             function playChunkedVoice(fullText, onDone) {
                 isAgentSpeaking = true;
-                if (rec) {{
-                    try {{ rec.abort(); }} catch(e){{}}
-                }}
+                if (rec) {
+                    try { rec.abort(); } catch(e){}
+                }
                 window.speechSynthesis.cancel();
 
                 const cleanedText = fullText.replace(/\\[CALL_ENDED\\]/g, '').replace(/CALL_ENDED/g, '').trim();
@@ -208,18 +205,18 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 avatarEl.style.background = "#10b981";
                 statusEl.innerText = "Agent speaking...";
 
-                function speakNextSentence() {{
-                    if (sIndex >= sentences.length) {{
+                function speakNextSentence() {
+                    if (sIndex >= sentences.length) {
                         setTimeout(resumeMic, 600);
                         return;
-                    }}
+                    }
 
                     const segment = sentences[sIndex].trim();
-                    if (!segment) {{
+                    if (!segment) {
                         sIndex++;
                         speakNextSentence();
                         return;
-                    }}
+                    }
 
                     const utterance = new SpeechSynthesisUtterance(segment);
                     utterance.lang = 'en-IN';
@@ -229,40 +226,40 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
                     if (indVoice) utterance.voice = indVoice;
 
-                    utterance.onend = () => {{
+                    utterance.onend = () => {
                         sIndex++;
                         speakNextSentence();
-                    }};
-                    utterance.onerror = () => {{
+                    };
+                    utterance.onerror = () => {
                         sIndex++;
                         speakNextSentence();
-                    }};
+                    };
 
                     window.speechSynthesis.speak(utterance);
-                }}
+                }
 
-                function resumeMic() {{
+                function resumeMic() {
                     isAgentSpeaking = false;
                     indicatorEl.innerText = "🎙️ Mic Active";
                     indicatorEl.style.color = "#38bdf8";
                     avatarEl.style.background = "#2563eb";
                     statusEl.innerText = "🎙️ Listening to you...";
 
-                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('have a wonderful day')) {{
+                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('have a wonderful day')) {
                         disconnectCall();
                         return;
-                    }}
+                    }
 
-                    if (inCall && rec) {{
-                        try {{ rec.start(); }} catch(err){{}}
-                    }}
+                    if (inCall && rec) {
+                        try { rec.start(); } catch(err){}
+                    }
                     if (onDone) onDone();
-                }}
+                }
 
                 speakNextSentence();
-            }}
+            }
 
-            function submitSpokenTurn(text) {{
+            function submitSpokenTurn(text) {
                 const cleaned = text.trim();
                 if (!cleaned || cleaned.length < 2 || isAgentSpeaking) return;
 
@@ -270,60 +267,59 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 indicatorEl.innerText = "⚡ Processing...";
                 previewEl.innerText = "You: " + cleaned;
 
-                // Transmit speech directly to Streamlit via URL parameter
                 const parentUrl = new URL(window.parent.location.href);
                 parentUrl.searchParams.set("voice_turn", cleaned);
                 window.parent.location.href = parentUrl.toString();
-            }}
+            }
 
-            function initRec() {{
+            function initRec() {
                 if (!SpeechRec) return null;
                 const r = new SpeechRec();
                 r.continuous = false;
                 r.interimResults = true;
                 r.lang = 'en-IN';
 
-                r.onstart = () => {{
-                    if (inCall && !isAgentSpeaking) {{
+                r.onstart = () => {
+                    if (inCall && !isAgentSpeaking) {
                         statusEl.innerText = "🎙️ Listening to you...";
                         statusEl.style.color = "#38bdf8";
                         indicatorEl.innerText = "🎙️ Mic Active";
                         indicatorEl.style.color = "#38bdf8";
-                    }}
-                }};
+                    }
+                };
 
-                r.onresult = (e) => {{
+                r.onresult = (e) => {
                     if (isAgentSpeaking) return;
 
                     let transcript = '';
-                    for (let i = e.resultIndex; i < e.results.length; ++i) {{
+                    for (let i = e.resultIndex; i < e.results.length; ++i) {
                         transcript += e.results[i][0].transcript;
-                    }}
+                    }
                     previewEl.innerText = transcript;
                     previewEl.style.color = "#38bdf8";
                     previewEl.style.fontStyle = "normal";
 
-                    if (e.results[0].isFinal) {{
+                    if (e.results[0].isFinal) {
                         submitSpokenTurn(transcript);
-                    }}
-                }};
+                    }
+                };
 
-                r.onerror = (e) => {{
+                r.onerror = (e) => {
                     if (inCall && e.error !== 'no-speech') console.warn(e.error);
-                }};
+                };
 
-                r.onend = () => {{
-                    if (inCall && !isAgentSpeaking) {{
-                        setTimeout(() => {{
-                            try {{ r.start(); }} catch(err){{}}
-                        }}, 400);
-                    }}
-                }};
+                r.onend = () => {
+                    if (inCall && !isAgentSpeaking) {
+                        setTimeout(() => {
+                            try { r.start(); } catch(err){}
+                        }, 400);
+                    }
+                };
 
                 return r;
-            }}
+            }
 
-            function disconnectCall() {{
+            function disconnectCall() {
                 sessionStorage.setItem('ksp_in_call', 'false');
                 inCall = false;
                 isAgentSpeaking = false;
@@ -337,10 +333,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 previewEl.innerText = "Call ended. Tap Start Call to connect again.";
                 previewEl.style.color = "#64748b";
                 previewEl.style.fontStyle = "italic";
-            }}
+            }
 
-            function toggleCall() {{
-                if (!inCall) {{
+            function toggleCall() {
+                if (!inCall) {
                     sessionStorage.setItem('ksp_in_call', 'true');
                     inCall = true;
                     btnEl.innerText = "🔴 End Call";
@@ -348,35 +344,35 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     statusEl.innerText = "Connecting...";
 
                     rec = initRec();
-                    const greeting = "{escaped_speech}";
-                    previewEl.innerText = greeting;
+                    previewEl.innerText = currentSpeechText;
 
-                    playChunkedVoice(greeting, () => {{
-                        if (inCall && rec) {{
-                            try {{ rec.start(); }} catch(e){{}}
-                        }}
-                    }});
-                }} else {{
+                    playChunkedVoice(currentSpeechText, () => {
+                        if (inCall && rec) {
+                            try { rec.start(); } catch(e){}
+                        }
+                    });
+                } else {
                     disconnectCall();
-                }}
-            }}
+                }
+            }
 
-            // Resume call state automatically across turns
-            if (inCall) {{
+            if (inCall) {
                 btnEl.innerText = "🔴 End Call";
                 btnEl.style.background = "#ef4444";
                 rec = initRec();
-                const latestReply = "{escaped_speech}";
-                previewEl.innerText = latestReply;
+                previewEl.innerText = currentSpeechText;
                 
-                playChunkedVoice(latestReply, () => {{
-                    if (inCall && rec) {{
-                        try {{ rec.start(); }} catch(e){{}}
-                    }}
-                }});
-            }}
+                playChunkedVoice(currentSpeechText, () => {
+                    if (inCall && rec) {
+                        try { rec.start(); } catch(e){}
+                    }
+                });
+            }
         </script>
-        """, height=220)
+        """
+
+        rendered_html = html_template.replace("__AGENT_SPEECH__", escaped_speech)
+        components.html(rendered_html, height=220)
 
         st.markdown("---")
         st.subheader("💬 Call Transcript & Multi-Turn Dialogue")
