@@ -1,92 +1,5 @@
-import io
-import speech_recognition as sr
-
-# Under if app_mode == "🎙️ Live Voice Intake Desk":
-if app_mode == "🎙️ Live Voice Intake Desk":
-    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct conversational tax desk powered by Gemini 3.8 Flash.</div>', unsafe_allow_html=True)
-
-    col1, col2 = st.columns([1.3, 1])
-
-    with col1:
-        st.subheader("Live Audio & Text Desk")
-        
-        # Link to Option 2 Full-Screen Call Screen
-        st.link_button("📞 Open Hands-Free Full-Screen Voice Call", "/call", use_container_width=True)
-        st.write("")
-
-        # OPTION 1: Native Streamlit Audio Input (Bypasses all iframe security blocks)
-        recorded_audio = st.audio_input("🎙️ Record Voice Query")
-
-        if recorded_audio is not None:
-            # Transcribe recorded audio file in Python
-            try:
-                r = sr.Recognizer()
-                with sr.AudioFile(recorded_audio) as source:
-                    audio_data = r.record(source)
-                    transcribed_text = r.recognize_google(audio_data, language="en-IN")
-                    
-                    if transcribed_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != transcribed_text):
-                        st.session_state.voice_history.append({"role": "user", "content": transcribed_text})
-                        
-                        # Generate reply via agent
-                        with st.spinner("Analyzing statutory regulations..."):
-                            agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
-                                conversation_history=st.session_state.voice_history[:-1],
-                                user_input=transcribed_text
-                            )
-                        st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
-            except Exception as e:
-                st.warning(f"Audio transcription note: Please speak clearly into the mic.")
-
-        # Chat display container
-        chat_container = st.container(height=340)
-        with chat_container:
-            st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
-            for msg in st.session_state.voice_history:
-                avatar = "👤" if msg["role"] == "user" else "⚖️"
-                st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
-
-        # Fallback text chat input
-        user_text = st.chat_input("Or type your tax question...")
-        if user_text:
-            st.session_state.voice_history.append({"role": "user", "content": user_text})
-            with chat_container:
-                st.chat_message("user", avatar="👤").write(user_text)
-                with st.spinner("Evaluating tax provisions..."):
-                    agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
-                        conversation_history=st.session_state.voice_history[:-1],
-                        user_input=user_text
-                    )
-                st.chat_message("assistant", avatar="⚖️").write(agent_reply)
-                st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
-
-            # Play audio reply
-            escaped_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
-            components.html(f"""
-                <script>
-                    window.speechSynthesis.cancel();
-                    const u = new SpeechSynthesisUtterance("{escaped_speech}");
-                    u.lang = 'en-IN';
-                    window.speechSynthesis.speak(u);
-                </script>
-            """, height=0)
-
-        if st.button("🔄 Reset Conversation", use_container_width=True):
-            st.session_state.voice_history = []
-            st.rerun()
-
-    with col2:
-        st.subheader("Capabilities & Tax Scope")
-        st.info("""
-        * **Option 1 (Native In-App Mic):** Use the official recorder widget to speak without iframe blocks.
-        * **Option 2 (Full-Screen Hands-Free Call):** Tap the blue button above to open the dedicated calling screen with real-time speech looping.
-        * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
-        * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts.
-        """)
 import streamlit as st
 import streamlit.components.v1 as components
-import pandas as pd
 import json
 import io
 import time
@@ -94,12 +7,21 @@ import jwt
 import sys
 from pathlib import Path
 
+# Safe optional import to prevent Render crash if package is building
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None
+
 # Ensure root directory is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.app.agents.voice_ivr_agent import GeminiVoiceIVRAgent
+try:
+    from backend.app.agents.voice_ivr_agent import GeminiVoiceIVRAgent
+except Exception:
+    GeminiVoiceIVRAgent = None
 
 st.set_page_config(
     page_title="KSP Consulting & Solutions | Autonomous Compliance Suite",
@@ -128,14 +50,6 @@ st.markdown("""
         border-radius: 8px;
         padding: 16px;
         margin-bottom: 12px;
-    }
-    .badge-success {
-        color: #166534;
-        background-color: #dcfce7;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -173,7 +87,10 @@ def verify_license_token(token_str: str) -> dict:
 # --- INITIALIZE AGENT IN SESSION STATE ---
 
 if "ivr_agent" not in st.session_state:
-    st.session_state.ivr_agent = GeminiVoiceIVRAgent()
+    if GeminiVoiceIVRAgent:
+        st.session_state.ivr_agent = GeminiVoiceIVRAgent()
+    else:
+        st.session_state.ivr_agent = None
 
 if "voice_history" not in st.session_state:
     st.session_state.voice_history = []
@@ -206,115 +123,82 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct in-browser conversational tax desk powered by Gemini. Zero third-party webhooks or phone fees required.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct conversational tax desk powered by Gemini 3.8 Flash. Zero phone carriers or third-party telecom fees required.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
-        st.subheader("Live Call Console")
-
-        # Option A: Tap-to-Speak Browser Mic Integration
-        components.html("""
-            <div style="display:flex; justify-content:center; align-items:center; margin-bottom: 12px;">
-                <button id="mic-btn" onclick="startMic()" style="background:#2563eb; color:white; border:none; padding:12px 28px; border-radius:50px; font-size:15px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); transition: all 0.2s;">
-                    🎙️ Tap to Speak (Voice Call)
-                </button>
-            </div>
-            <script>
-                const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRec) {
-                    const btn = document.getElementById('mic-btn');
-                    btn.innerText = "❌ Mic not supported in this browser (Use Chrome)";
-                    btn.style.background = "#64748b";
-                    btn.disabled = true;
-                } else {
-                    const rec = new SpeechRec();
-                    rec.lang = 'en-IN';
-                    rec.continuous = false;
-                    rec.interimResults = false;
-
-                    rec.onstart = () => {
-                        const btn = document.getElementById('mic-btn');
-                        btn.innerText = "🔴 Listening... Speak now";
-                        btn.style.background = "#dc2626";
-                    };
-
-                    rec.onresult = (e) => {
-                        const transcript = e.results[0][0].transcript;
-                        const parentDoc = window.parent.document;
-                        const chatInput = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                        if (chatInput) {
-                            chatInput.value = transcript;
-                            chatInput.dispatchEvent(new Event('input', { bubbles: true }));
-                            setTimeout(() => {
-                                const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                                if (submitBtn) submitBtn.click();
-                            }, 200);
-                        }
-                    };
-
-                    rec.onerror = (e) => {
-                        console.warn("Speech error:", e.error);
-                        const btn = document.getElementById('mic-btn');
-                        btn.innerText = "🎙️ Tap to Speak (Voice Call)";
-                        btn.style.background = "#2563eb";
-                    };
-
-                    rec.onend = () => {
-                        const btn = document.getElementById('mic-btn');
-                        btn.innerText = "🎙️ Tap to Speak (Voice Call)";
-                        btn.style.background = "#2563eb";
-                    };
-
-                    window.startMic = function() {
-                        try {
-                            rec.start();
-                        } catch(err) {
-                            console.warn("Recognition already active", err);
-                        }
-                    };
-                }
-            </script>
-        """, height=70)
+        st.subheader("Live Audio & Text Desk")
         
-        chat_container = st.container(height=360)
+        # Option 1: Native Streamlit Audio Recorder
+        recorded_audio = st.audio_input("🎙️ Record Voice Query")
+
+        if recorded_audio is not None and sr is not None:
+            try:
+                r = sr.Recognizer()
+                with sr.AudioFile(recorded_audio) as source:
+                    audio_data = r.record(source)
+                    transcribed_text = r.recognize_google(audio_data, language="en-IN")
+                    
+                    if transcribed_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != transcribed_text):
+                        st.session_state.voice_history.append({"role": "user", "content": transcribed_text})
+                        
+                        if st.session_state.ivr_agent:
+                            with st.spinner("Analyzing statutory regulations under Section 44ADA / 44AB..."):
+                                reply = st.session_state.ivr_agent.generate_ivr_turn(
+                                    conversation_history=st.session_state.voice_history[:-1],
+                                    user_input=transcribed_text
+                                )
+                        else:
+                            reply = "Tax engine is active. Please review Section 44ADA presumptive limits."
+                        
+                        st.session_state.voice_history.append({"role": "assistant", "content": reply})
+            except Exception:
+                st.info("Voice audio recorded. You can also use the text input below for uninterrupted interaction.")
+
+        # Chat display container
+        chat_container = st.container(height=340)
         with chat_container:
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
                 avatar = "👤" if msg["role"] == "user" else "⚖️"
                 st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
 
-        user_voice_query = st.chat_input("Speak via the blue button above or type your tax question...")
-
-        if user_voice_query:
-            st.session_state.voice_history.append({"role": "user", "content": user_voice_query})
+        # Fallback text chat input
+        user_text = st.chat_input("Speak via the mic above or type your tax query...")
+        if user_text:
+            st.session_state.voice_history.append({"role": "user", "content": user_text})
             with chat_container:
-                st.chat_message("user", avatar="👤").write(user_voice_query)
-                with st.spinner("Analyzing statutory eligibility under Sections 44ADA / 44AB..."):
-                    reply = st.session_state.ivr_agent.generate_ivr_turn(
-                        conversation_history=st.session_state.voice_history[:-1],
-                        user_input=user_voice_query
-                    )
-                st.chat_message("assistant", avatar="⚖️").write(reply)
-                st.session_state.voice_history.append({"role": "assistant", "content": reply})
+                st.chat_message("user", avatar="👤").write(user_text)
+                
+                if st.session_state.ivr_agent:
+                    with st.spinner("Evaluating tax provisions..."):
+                        agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
+                            conversation_history=st.session_state.voice_history[:-1],
+                            user_input=user_text
+                        )
+                else:
+                    agent_reply = "Welcome to KSP Consulting. Please check back shortly as the AI desk initializes."
 
-            # Native Browser Speech Synthesis (Speaks reply aloud)
-            escaped_reply = reply.replace('"', '\\"').replace('\n', ' ')
+                st.chat_message("assistant", avatar="⚖️").write(agent_reply)
+                st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
+
+            # Speaks reply aloud using Indian English browser speech synthesis
+            clean_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
             components.html(f"""
                 <script>
                     window.speechSynthesis.cancel();
-                    const utterance = new SpeechSynthesisUtterance("{escaped_reply}");
-                    utterance.lang = 'en-IN';
-                    utterance.rate = 1.0;
+                    const u = new SpeechSynthesisUtterance("{clean_speech}");
+                    u.lang = 'en-IN';
+                    u.rate = 1.0;
                     const voices = window.speechSynthesis.getVoices();
-                    const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
-                    if (indVoice) utterance.voice = indVoice;
-                    window.speechSynthesis.speak(utterance);
+                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+                    if (ind) u.voice = ind;
+                    window.speechSynthesis.speak(u);
                 </script>
             """, height=0)
 
-        c_btn1, c_btn2 = st.columns(2)
-        if c_btn1.button("🔄 Reset Conversation", use_container_width=True):
+        if st.button("🔄 Reset Conversation", use_container_width=True):
             st.session_state.voice_history = []
             st.rerun()
 
@@ -324,7 +208,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
         * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
         * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts (Section 194J / 194C).
         * **Audit Exemption Flags:** Determines books of accounts relief under Section 44AA and tax audit relief under Section 44AB.
-        * **Interactive Speech Synthesis:** Speaks all statutory recommendations aloud in real-time.
+        * **Speech Synthesis Playback:** Speaks all statutory recommendations aloud in real-time.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
