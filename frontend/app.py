@@ -5,6 +5,15 @@ import json
 import io
 import time
 import jwt
+import sys
+from pathlib import Path
+
+# Ensure root directory is in sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from backend.app.agents.voice_ivr_agent import GeminiVoiceIVRAgent
 
 st.set_page_config(
     page_title="KSP Consulting & Solutions | Autonomous Compliance Suite",
@@ -42,14 +51,6 @@ st.markdown("""
         font-size: 12px;
         font-weight: 600;
     }
-    .badge-danger {
-        color: #991b1b;
-        background-color: #fee2e2;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,7 +61,6 @@ def verify_license_token(token_str: str) -> dict:
     if not token_str or not token_str.strip():
         return {"valid": False, "tier": "Free Preview", "type": "unlicensed", "message": "No token provided"}
     try:
-        # In local testing, if signed with secret
         secret = "KSP_COMPLIANCE_SUITE_MASTER_KEY_2026"
         payload = jwt.decode(token_str.strip(), secret, algorithms=["HS256"])
         return {
@@ -71,7 +71,6 @@ def verify_license_token(token_str: str) -> dict:
             "message": "Active verified license"
         }
     except Exception:
-        # Check unverified claims for display if signature differs
         try:
             unverified = jwt.decode(token_str.strip(), options={"verify_signature": False})
             return {
@@ -85,163 +84,13 @@ def verify_license_token(token_str: str) -> dict:
             return {"valid": False, "tier": "Invalid", "type": "none", "message": "Malformed token string"}
 
 
-# --- IN-HOUSE BROWSER WEBRTC VOICE CALLER COMPONENT ---
+# --- INITIALIZE AGENT IN SESSION STATE ---
 
-def render_voice_caller_widget():
-    voice_html = """
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 20px; border-radius: 12px; color: #f8fafc; border: 1px solid #334155;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span id="call-dot" style="height: 10px; width: 10px; background-color: #64748b; border-radius: 50%; display: inline-block;"></span>
-                <span style="font-weight: 700; font-size: 15px; letter-spacing: 0.3px;">KSP Autonomous Voice Intake</span>
-            </div>
-            <span id="call-status" style="font-size: 12px; color: #94a3b8; font-weight: 500;">Ready to connect</span>
-        </div>
+if "ivr_agent" not in st.session_state:
+    st.session_state.ivr_agent = GeminiVoiceIVRAgent()
 
-        <div id="transcript-box" style="height: 180px; overflow-y: auto; background: #020617; border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.5; color: #cbd5e1; border: 1px solid #1e293b; margin-bottom: 14px;">
-            <p style="color: #64748b; margin: 0;">Click 'Start Voice Call' to speak with KSP Autonomous Tax Agent...</p>
-        </div>
-
-        <div style="display: flex; gap: 10px;">
-            <button id="toggle-call-btn" onclick="toggleCall()" style="flex: 1; padding: 11px 16px; border-radius: 8px; border: none; background: #2563eb; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
-                📞 Start Voice Call
-            </button>
-        </div>
-    </div>
-
-    <script>
-        let isCalling = false;
-        let recognition = null;
-        let conversationHistory = [];
-        const statusEl = document.getElementById('call-status');
-        const transcriptEl = document.getElementById('transcript-box');
-        const btnEl = document.getElementById('toggle-call-btn');
-        const dotEl = document.getElementById('call-dot');
-
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        function speakAgentReply(text, onComplete) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 1.0;
-            
-            const voices = window.speechSynthesis.getVoices();
-            const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
-            if (indVoice) utterance.voice = indVoice;
-
-            utterance.onend = () => {
-                if (onComplete) onComplete();
-            };
-            window.speechSynthesis.speak(utterance);
-        }
-
-        function appendLog(speaker, text, color) {
-            const row = document.createElement('p');
-            row.style.margin = "6px 0";
-            row.innerHTML = `<strong style="color: ${color};">${speaker}:</strong> ${text}`;
-            transcriptEl.appendChild(row);
-            transcriptEl.scrollTop = transcriptEl.scrollHeight;
-        }
-
-        function setupRecognizer() {
-            if (!SpeechRec) {
-                alert("Speech recognition is not supported in this browser. Please use Google Chrome or Edge.");
-                return null;
-            }
-            const rec = new SpeechRec();
-            rec.continuous = false;
-            rec.interimResults = false;
-            rec.lang = 'en-IN';
-
-            rec.onstart = () => {
-                statusEl.innerText = "🎙️ Listening to you...";
-                statusEl.style.color = "#38bdf8";
-                dotEl.style.backgroundColor = "#38bdf8";
-            };
-
-            rec.onresult = async (e) => {
-                const userTranscript = e.results[0][0].transcript;
-                appendLog("You", userTranscript, "#38bdf8");
-                statusEl.innerText = "⚡ Thinking...";
-                statusEl.style.color = "#f59e0b";
-                dotEl.style.backgroundColor = "#f59e0b";
-
-                try {
-                    // Direct API route on current host
-                    const res = await fetch('/api/voice/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            user_input: userTranscript,
-                            conversation_history: conversationHistory
-                        })
-                    });
-                    const data = await res.json();
-                    const reply = data.reply || "I have noted that. How else can KSP Consulting assist?";
-                    
-                    appendLog("KSP Agent", reply, "#4ade80");
-                    conversationHistory.push({ role: "user", content: userTranscript });
-                    conversationHistory.push({ role: "model", content: reply });
-
-                    statusEl.innerText = "🗣️ Speaking...";
-                    statusEl.style.color = "#4ade80";
-                    dotEl.style.backgroundColor = "#4ade80";
-
-                    speakAgentReply(reply, () => {
-                        if (isCalling) rec.start();
-                    });
-                } catch (err) {
-                    appendLog("System", "Could not reach tax backend. Retrying...", "#ef4444");
-                    if (isCalling) setTimeout(() => rec.start(), 1500);
-                }
-            };
-
-            rec.onerror = (e) => {
-                if (isCalling && e.error !== 'no-speech') {
-                    console.warn("Speech error:", e.error);
-                }
-                if (isCalling) {
-                    setTimeout(() => {
-                        try { rec.start(); } catch(err) {}
-                    }, 1000);
-                }
-            };
-
-            return rec;
-        }
-
-        function toggleCall() {
-            if (!isCalling) {
-                isCalling = true;
-                btnEl.innerText = "🔴 End Call";
-                btnEl.style.background = "#dc2626";
-                transcriptEl.innerHTML = "";
-                
-                recognition = setupRecognizer();
-                const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
-                appendLog("KSP Agent", greeting, "#4ade80");
-                
-                statusEl.innerText = "🗣️ Greeting...";
-                statusEl.style.color = "#4ade80";
-                dotEl.style.backgroundColor = "#4ade80";
-
-                speakAgentReply(greeting, () => {
-                    if (isCalling && recognition) recognition.start();
-                });
-            } else {
-                isCalling = false;
-                window.speechSynthesis.cancel();
-                if (recognition) recognition.abort();
-                btnEl.innerText = "📞 Start Voice Call";
-                btnEl.style.background = "#2563eb";
-                statusEl.innerText = "Call disconnected";
-                statusEl.style.color = "#94a3b8";
-                dotEl.style.backgroundColor = "#64748b";
-            }
-        }
-    </script>
-    """
-    components.html(voice_html, height=330)
+if "voice_history" not in st.session_state:
+    st.session_state.voice_history = []
 
 
 # --- SIDEBAR WORKFLOW ---
@@ -253,7 +102,7 @@ with st.sidebar:
 
     app_mode = st.radio(
         "Navigation",
-        ["⚙️ Compliance & Filing Hub", "🏢 KSP Overview & Pricing", "🎙️ Live Voice Intake Desk"]
+        ["⚙️ Compliance & Filing Hub", "🎙️ Live Voice Intake Desk", "🏢 KSP Overview & Pricing"]
     )
 
     st.markdown("---")
@@ -270,20 +119,64 @@ with st.sidebar:
 # --- MAIN APP ROUTING ---
 
 if app_mode == "🎙️ Live Voice Intake Desk":
-    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Intake Specialist</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct in-browser speech intake for Indian taxpayers and freelance professionals. Zero external telephone carrier required.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct in-browser conversational tax desk powered by Gemini 3.8 Flash. Zero third-party webhooks or phone fees required.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
+
     with col1:
         st.subheader("Live Call Console")
-        render_voice_caller_widget()
+        
+        chat_container = st.container(height=380)
+        with chat_container:
+            st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
+            for msg in st.session_state.voice_history:
+                avatar = "👤" if msg["role"] == "user" else "⚖️"
+                st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
+
+        user_voice_query = st.chat_input("Speak or type your tax situation (e.g. 'I earned 22 Lakhs from freelance consulting, do I need an audit?')...")
+
+        if user_voice_query:
+            # 1. Record and render user query
+            st.session_state.voice_history.append({"role": "user", "content": user_voice_query})
+            with chat_container:
+                st.chat_message("user", avatar="👤").write(user_voice_query)
+                with st.spinner("Analyzing statutory eligibility under Sections 44ADA / 44AB..."):
+                    # Direct Python execution to GeminiVoiceIVRAgent
+                    reply = st.session_state.ivr_agent.generate_ivr_turn(
+                        conversation_history=st.session_state.voice_history[:-1],
+                        user_input=user_voice_query
+                    )
+                st.chat_message("assistant", avatar="⚖️").write(reply)
+                st.session_state.voice_history.append({"role": "assistant", "content": reply})
+
+            # 2. Browser Audio TTS Playback (Speaks reply aloud)
+            escaped_reply = reply.replace('"', '\\"').replace('\n', ' ')
+            components.html(f"""
+                <script>
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance("{escaped_reply}");
+                    utterance.lang = 'en-IN';
+                    utterance.rate = 1.0;
+                    const voices = window.speechSynthesis.getVoices();
+                    const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+                    if (indVoice) utterance.voice = indVoice;
+                    window.speechSynthesis.speak(utterance);
+                </script>
+            """, height=0)
+
+        c_btn1, c_btn2 = st.columns(2)
+        if c_btn1.button("🔄 Reset Conversation", use_container_width=True):
+            st.session_state.voice_history = []
+            st.rerun()
+
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
         * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
         * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts (Section 194J / 194C).
         * **Audit Exemption Flags:** Determines books of accounts relief under Section 44AA and tax audit relief under Section 44AB.
-        * **Client Lead Capture:** Collects taxpayer contact info and records document submission intents.
+        * **Browser Speech Synthesis:** Plays response aloud through speakers or headphones in real-time.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
@@ -372,14 +265,8 @@ else:
         f_income = st.number_input("Gross Freelance Receipts (Sec 194J) (₹)", value=1800000.0)
         f_tds = st.number_input("TDS Deducted under 194J (₹)", value=180000.0)
 
-        # Quick In-App Voice Intake Expander
-        with st.expander("🎙️ Speak with Autonomous Tax Desk regarding this filing"):
-            render_voice_caller_widget()
-
         if st.button("⚡ Run Autonomous Dual-Regime Audit & Generate Tax Pack", key="btn_itr"):
-            # Presumptive calculation under 44ADA
             taxable_profit = f_income * 0.50
-            # 115BAC New Regime slab calculation
             tax_new = 0.0
             if taxable_profit > 1500000:
                 tax_new = 150000 + (taxable_profit - 1500000) * 0.30
@@ -403,18 +290,21 @@ else:
 
             st.success("✅ **Regime Decision:** Section 115BAC New Tax Regime yields the lowest statutory liability.")
 
-            # License Check for Downloads
             if license_info["valid"]:
                 st.markdown("---")
                 st.markdown("#### 🔓 Licensed Output Packages")
                 d_c1, d_c2 = st.columns(2)
                 
-                # Mock CBDT Payload
                 cbdt_payload = {
                     "ITR": {
                         "ITR4": {
                             "PersonalInfo": {"AssesseeName": f_name, "PAN": f_pan},
-                            "TaxComputation": {"GrossReceipts": f_income, "PresumptiveIncome44ADA": taxable_profit, "TDSClaimed": f_tds, "RefundDue": net_refund_or_due}
+                            "TaxComputation": {
+                                "GrossReceipts": f_income,
+                                "PresumptiveIncome44ADA": taxable_profit,
+                                "TDSClaimed": f_tds,
+                                "RefundDue": net_refund_or_due
+                            }
                         }
                     }
                 }
