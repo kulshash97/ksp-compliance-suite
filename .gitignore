@@ -19,3 +19,5 @@ Thumbs.db
 *.csv
 *.json
 !backend/app/core/tax_rules.json
+
+.env
