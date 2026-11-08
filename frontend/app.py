@@ -7,12 +7,6 @@ import jwt
 import sys
 from pathlib import Path
 
-# Safe optional import to prevent Render crash if package is building
-try:
-    import speech_recognition as sr
-except ImportError:
-    sr = None
-
 # Ensure root directory is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -105,7 +99,7 @@ with st.sidebar:
 
     app_mode = st.radio(
         "Navigation",
-        ["⚙️ Compliance & Filing Hub", "🎙️ Live Voice Intake Desk", "🏢 KSP Overview & Pricing"]
+        ["🎙️ Live Voice Intake Desk", "⚙️ Compliance & Filing Hub", "🏢 KSP Overview & Pricing"]
     )
 
     st.markdown("---")
@@ -122,57 +116,196 @@ with st.sidebar:
 # --- MAIN APP ROUTING ---
 
 if app_mode == "🎙️ Live Voice Intake Desk":
-    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct conversational tax desk powered by Gemini 3.8 Flash. Zero phone carriers or third-party telecom fees required.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Live hands-free telephony-grade AI intake with automatic speech recognition and Indian English neural voice.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
-        st.subheader("Live Audio & Text Desk")
-        
-        # Option 1: Native Streamlit Audio Recorder
-        recorded_audio = st.audio_input("🎙️ Record Voice Query")
+        st.subheader("📞 Option 2: Live Hands-Free Call Console")
+        st.caption("Tap 'Start Call' once, allow mic permissions, and speak naturally like a real phone call.")
 
-        if recorded_audio is not None and sr is not None:
-            try:
-                r = sr.Recognizer()
-                with sr.AudioFile(recorded_audio) as source:
-                    audio_data = r.record(source)
-                    transcribed_text = r.recognize_google(audio_data, language="en-IN")
+        # Embedded Hands-Free Web Voice Calling Console
+        components.html("""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div id="call-avatar" style="width: 38px; height: 38px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px;">⚖️</div>
+                    <div>
+                        <div style="font-weight: 700; font-size: 15px;">KSP Autonomous Tax Agent</div>
+                        <div id="call-status" style="font-size: 12px; color: #94a3b8;">Ready to connect</div>
+                    </div>
+                </div>
+                <button id="main-call-btn" onclick="toggleCall()" style="background: #22c55e; color: white; border: none; padding: 10px 22px; border-radius: 30px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                    📞 Start Call
+                </button>
+            </div>
+
+            <div id="call-transcript" style="height: 240px; overflow-y: auto; background: #020617; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.6; color: #cbd5e1; border: 1px solid #1e293b; margin-bottom: 12px;">
+                <p style="color: #64748b; margin: 0;">Tap 'Start Call' to begin a continuous voice conversation with the agent...</p>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
+                <span>Language: Indian English (en-IN)</span>
+                <span id="audio-indicator">🔇 Audio Idle</span>
+            </div>
+        </div>
+
+        <script>
+            let inCall = false;
+            let recognition = null;
+            let conversationHistory = [];
+            const statusEl = document.getElementById('call-status');
+            const transcriptEl = document.getElementById('call-transcript');
+            const btnEl = document.getElementById('main-call-btn');
+            const indicatorEl = document.getElementById('audio-indicator');
+            const avatarEl = document.getElementById('call-avatar');
+
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            function appendDialogue(sender, text, color) {
+                const p = document.createElement('p');
+                p.style.margin = "8px 0";
+                p.innerHTML = `<strong style="color: ${color};">${sender}:</strong> ${text}`;
+                transcriptEl.appendChild(p);
+                transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            }
+
+            function playVoice(text, onDone) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-IN';
+                utterance.rate = 1.0;
+                
+                const voices = window.speechSynthesis.getVoices();
+                const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
+                if (indVoice) utterance.voice = indVoice;
+
+                indicatorEl.innerText = "🗣️ Agent Speaking...";
+                indicatorEl.style.color = "#4ade80";
+                avatarEl.style.background = "#10b981";
+
+                utterance.onend = () => {
+                    indicatorEl.innerText = "🔇 Audio Idle";
+                    indicatorEl.style.color = "#64748b";
+                    avatarEl.style.background = "#2563eb";
+                    if (onDone) onDone();
+                };
+                utterance.onerror = () => {
+                    indicatorEl.innerText = "🔇 Audio Idle";
+                    avatarEl.style.background = "#2563eb";
+                    if (onDone) onDone();
+                };
+
+                window.speechSynthesis.speak(utterance);
+            }
+
+            function initVoiceRecognizer() {
+                if (!SpeechRec) {
+                    alert("Please use Chrome or Edge for voice calls.");
+                    return null;
+                }
+                const rec = new SpeechRec();
+                rec.continuous = false;
+                rec.interimResults = false;
+                rec.lang = 'en-IN';
+
+                rec.onstart = () => {
+                    if (inCall) {
+                        statusEl.innerText = "🎙️ Listening to you...";
+                        statusEl.style.color = "#38bdf8";
+                        indicatorEl.innerText = "🎙️ Mic Active";
+                        indicatorEl.style.color = "#38bdf8";
+                    }
+                };
+
+                rec.onresult = async (e) => {
+                    const text = e.results[0][0].transcript;
+                    appendDialogue("You", text, "#38bdf8");
+                    statusEl.innerText = "⚡ Agent thinking...";
+                    statusEl.style.color = "#f59e0b";
+                    indicatorEl.innerText = "⚡ Processing...";
+
+                    // Pass to Streamlit chat input or sync
+                    const parentDoc = window.parent.document;
+                    const chatInput = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                    if (chatInput) {
+                        chatInput.value = text;
+                        chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        const submit = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                        if (submit) submit.click();
+                    }
+                };
+
+                rec.onerror = (e) => {
+                    if (inCall && e.error !== 'no-speech') console.warn(e.error);
+                    if (inCall) {
+                        setTimeout(() => {
+                            try { rec.start(); } catch(err){}
+                        }, 800);
+                    }
+                };
+
+                rec.onend = () => {
+                    if (inCall) {
+                        setTimeout(() => {
+                            try { rec.start(); } catch(err){}
+                        }, 500);
+                    }
+                };
+
+                return rec;
+            }
+
+            function toggleCall() {
+                if (!inCall) {
+                    inCall = true;
+                    btnEl.innerText = "🔴 End Call";
+                    btnEl.style.background = "#ef4444";
+                    transcriptEl.innerHTML = "";
+                    statusEl.innerText = "Connecting call...";
                     
-                    if transcribed_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != transcribed_text):
-                        st.session_state.voice_history.append({"role": "user", "content": transcribed_text})
-                        
-                        if st.session_state.ivr_agent:
-                            with st.spinner("Analyzing statutory regulations under Section 44ADA / 44AB..."):
-                                reply = st.session_state.ivr_agent.generate_ivr_turn(
-                                    conversation_history=st.session_state.voice_history[:-1],
-                                    user_input=transcribed_text
-                                )
-                        else:
-                            reply = "Tax engine is active. Please review Section 44ADA presumptive limits."
-                        
-                        st.session_state.voice_history.append({"role": "assistant", "content": reply})
-            except Exception:
-                st.info("Voice audio recorded. You can also use the text input below for uninterrupted interaction.")
+                    recognition = initVoiceRecognizer();
+                    const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
+                    appendDialogue("KSP Agent", greeting, "#4ade80");
+                    
+                    playVoice(greeting, () => {
+                        if (inCall && recognition) {
+                            try { recognition.start(); } catch(e){}
+                        }
+                    });
+                } else {
+                    inCall = false;
+                    window.speechSynthesis.cancel();
+                    if (recognition) recognition.abort();
+                    btnEl.innerText = "📞 Start Call";
+                    btnEl.style.background = "#22c55e";
+                    statusEl.innerText = "Call disconnected";
+                    statusEl.style.color = "#94a3b8";
+                    indicatorEl.innerText = "🔇 Audio Idle";
+                }
+            }
+        </script>
+        """, height=360)
 
-        # Chat display container
-        chat_container = st.container(height=340)
+        st.markdown("---")
+        st.subheader("💬 Text Chat & Transcript Sync")
+        
+        chat_container = st.container(height=280)
         with chat_container:
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
                 avatar = "👤" if msg["role"] == "user" else "⚖️"
                 st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
 
-        # Fallback text chat input
-        user_text = st.chat_input("Speak via the mic above or type your tax query...")
+        user_text = st.chat_input("Or type your tax inquiry here...")
         if user_text:
             st.session_state.voice_history.append({"role": "user", "content": user_text})
             with chat_container:
                 st.chat_message("user", avatar="👤").write(user_text)
                 
                 if st.session_state.ivr_agent:
-                    with st.spinner("Evaluating tax provisions..."):
+                    with st.spinner("Evaluating statutory provisions..."):
                         agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
                             conversation_history=st.session_state.voice_history[:-1],
                             user_input=user_text
@@ -183,7 +316,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 st.chat_message("assistant", avatar="⚖️").write(agent_reply)
                 st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
 
-            # Speaks reply aloud using Indian English browser speech synthesis
+            # Explicit Speech Playback on user submit
             clean_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
             components.html(f"""
                 <script>
@@ -192,23 +325,24 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     u.lang = 'en-IN';
                     u.rate = 1.0;
                     const voices = window.speechSynthesis.getVoices();
-                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
                     if (ind) u.voice = ind;
                     window.speechSynthesis.speak(u);
                 </script>
             """, height=0)
 
-        if st.button("🔄 Reset Conversation", use_container_width=True):
+        if st.button("🔄 Reset Conversation History", use_container_width=True):
             st.session_state.voice_history = []
             st.rerun()
 
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
+        * **Continuous Call Loop (Option 2):** Tap 'Start Call' once. It listens, responds with Indian English neural voice, and waits for your next answer without needing to re-tap.
+        * **Form Classification:** Accurately routes Salaried individuals with Capital Gains to Form ITR-2 or ITR-3.
         * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
-        * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts (Section 194J / 194C).
-        * **Audit Exemption Flags:** Determines books of accounts relief under Section 44AA and tax audit relief under Section 44AB.
-        * **Speech Synthesis Playback:** Speaks all statutory recommendations aloud in real-time.
+        * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts.
+        * **Lead & Contact Capture:** Accurately records phone numbers, email IDs, and taxpayer profiles.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
