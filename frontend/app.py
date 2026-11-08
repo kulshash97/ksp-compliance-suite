@@ -115,36 +115,36 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct mobile and desktop voice calling with echo-lock and neural synthesis.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct mobile & desktop voice calling with continuous Speech-to-Speech loop and acoustic echo isolation.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Hands-Free Mobile & Desktop Calling Console
+        # Autonomous WebRTC Voice Calling Widget
         components.html("""
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155;">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div id="call-avatar" style="width: 42px; height: 42px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px;">⚖️</div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div id="call-avatar" style="width: 44px; height: 44px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 22px; transition: all 0.3s;">⚖️</div>
                     <div>
-                        <div style="font-weight: 700; font-size: 15px;">KSP Autonomous Tax Agent</div>
-                        <div id="call-status" style="font-size: 12px; color: #94a3b8;">Ready to connect</div>
+                        <div style="font-weight: 700; font-size: 16px; color: #f8fafc;">KSP Autonomous Tax Agent</div>
+                        <div id="call-status" style="font-size: 12px; color: #94a3b8; font-weight: 500;">Ready to connect</div>
                     </div>
                 </div>
-                <button id="main-call-btn" onclick="toggleCall()" style="background: #22c55e; color: white; border: none; padding: 10px 24px; border-radius: 30px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                <button id="main-call-btn" onclick="toggleCall()" style="background: #22c55e; color: white; border: none; padding: 10px 24px; border-radius: 30px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(34,197,94,0.4);">
                     📞 Start Call
                 </button>
             </div>
 
-            <div id="live-speech-box" style="padding: 12px 14px; background: #020617; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 12px; font-size: 13px; color: #38bdf8; min-height: 44px; display: flex; align-items: center;">
-                <span id="speech-preview" style="color: #64748b; font-style: italic;">Tap Start Call to begin hands-free conversation...</span>
+            <div id="call-log" style="height: 250px; overflow-y: auto; background: #020617; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.6; color: #cbd5e1; border: 1px solid #1e293b; margin-bottom: 12px;">
+                <p style="color: #64748b; margin: 0;">Tap 'Start Call' to begin a continuous voice conversation with the agent...</p>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
-                <span>Mobile Audio: Active en-IN</span>
-                <span id="audio-indicator">🔇 Mic Muted</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b; padding: 0 4px;">
+                <span>Language: Indian English (en-IN)</span>
+                <span id="audio-indicator" style="font-weight: 600;">🔇 Audio Idle</span>
             </div>
         </div>
 
@@ -152,26 +152,38 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             let inCall = false;
             let isAgentSpeaking = false;
             let rec = null;
-            let lastSubmitted = "";
+            let conversationHistory = [];
             const statusEl = document.getElementById('call-status');
-            const previewEl = document.getElementById('speech-preview');
+            const logEl = document.getElementById('call-log');
             const btnEl = document.getElementById('main-call-btn');
             const indicatorEl = document.getElementById('audio-indicator');
             const avatarEl = document.getElementById('call-avatar');
 
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-            // Unlock mobile audio context
-            function unlockMobileAudio() {
+            function appendLog(sender, text, color) {
+                const p = document.createElement('p');
+                p.style.margin = "8px 0";
+                p.innerHTML = `<strong style="color: ${color};">${sender}:</strong> ${text}`;
+                logEl.appendChild(p);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            // Mobile-Safe Audio Context Unlocker
+            function unlockAudioContext() {
                 try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    if (ctx.state === 'suspended') {
-                        ctx.resume();
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        const ctx = new AudioContext();
+                        if (ctx.state === 'suspended') {
+                            ctx.resume();
+                        }
                     }
                 } catch(e){}
             }
 
-            function playChunkedVoice(fullText, onDone) {
+            // Chunked TTS Speech Engine
+            function speakAgentResponse(fullText, onComplete) {
                 isAgentSpeaking = true;
                 if (rec) {
                     try { rec.abort(); } catch(e){}
@@ -179,24 +191,25 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 window.speechSynthesis.cancel();
 
                 const cleanedText = fullText.replace(/\[CALL_ENDED\]/g, '').replace(/CALL_ENDED/g, '').trim();
-                let sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
-                let sIndex = 0;
+                const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
+                let sIdx = 0;
 
                 indicatorEl.innerText = "🗣️ Agent Speaking (Mic Muted)";
                 indicatorEl.style.color = "#4ade80";
                 avatarEl.style.background = "#10b981";
                 statusEl.innerText = "Agent speaking...";
 
-                function speakSentence() {
-                    if (sIndex >= sentences.length) {
-                        setTimeout(resumeMic, 450);
+                function speakNextSentence() {
+                    if (sIdx >= sentences.length) {
+                        // 700ms reverberation buffer before unmuting mic
+                        setTimeout(resumeListening, 700);
                         return;
                     }
 
-                    const segment = sentences[sIndex].trim();
+                    const segment = sentences[sIdx].trim();
                     if (!segment) {
-                        sIndex++;
-                        speakSentence();
+                        sIdx++;
+                        speakNextSentence();
                         return;
                     }
 
@@ -209,72 +222,77 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     if (indVoice) utterance.voice = indVoice;
 
                     utterance.onend = () => {
-                        sIndex++;
-                        speakSentence();
+                        sIdx++;
+                        speakNextSentence();
                     };
                     utterance.onerror = () => {
-                        sIndex++;
-                        speakSentence();
+                        sIdx++;
+                        speakNextSentence();
                     };
 
                     window.speechSynthesis.speak(utterance);
                 }
 
-                function resumeMic() {
+                function resumeListening() {
                     isAgentSpeaking = false;
                     indicatorEl.innerText = "🎙️ Mic Active";
                     indicatorEl.style.color = "#38bdf8";
                     avatarEl.style.background = "#2563eb";
                     statusEl.innerText = "🎙️ Listening to you...";
 
-                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('call completed')) {
-                        disconnectCall();
+                    if (fullText.toLowerCase().includes('goodbye') || fullText.toLowerCase().includes('have a wonderful day')) {
+                        endCallSession();
                         return;
                     }
 
-                    if (onDone) onDone();
+                    if (inCall && rec) {
+                        try { rec.start(); } catch(err){}
+                    }
+                    if (onComplete) onComplete();
                 }
 
-                speakSentence();
+                speakNextSentence();
             }
 
-            function sendToStreamlit(text) {
-                const cleaned = text.trim();
-                if (!cleaned || cleaned.length < 3 || cleaned === lastSubmitted || isAgentSpeaking) {
-                    return;
-                }
-                lastSubmitted = cleaned;
+            async function processUserSpeech(userText) {
+                appendLog("You", userText, "#38bdf8");
+                statusEl.innerText = "⚡ Agent analyzing...";
+                indicatorEl.innerText = "⚡ Thinking...";
 
-                const parentDoc = window.parent.document;
-                const textarea = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]') || parentDoc.querySelector('textarea');
-                
-                if (textarea) {
-                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                    nativeSetter.call(textarea, cleaned);
-                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                try {
+                    const res = await fetch('/api/voice/chat', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            user_input: userText,
+                            conversation_history: conversationHistory
+                        })
+                    });
+                    const data = await res.json();
+                    const agentReply = data.reply || "I noted that. Could you please share your annual gross income?";
 
-                    setTimeout(() => {
-                        const enterEvent = new KeyboardEvent('keydown', {
-                            bubbles: true,
-                            cancelable: true,
-                            key: 'Enter',
-                            code: 'Enter',
-                            keyCode: 13
-                        });
-                        textarea.dispatchEvent(enterEvent);
+                    appendLog("KSP Agent", agentReply, "#4ade80");
+                    conversationHistory.push({role: "user", content: userText});
+                    conversationHistory.push({role: "model", content: agentReply});
 
-                        const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                        if (submitBtn) submitBtn.click();
-                    }, 150);
+                    speakAgentResponse(agentReply);
+                } catch(err) {
+                    appendLog("System", "Could not reach tax backend. Retrying...", "#ef4444");
+                    isAgentSpeaking = false;
+                    if (inCall && rec) {
+                        setTimeout(() => { try { rec.start(); } catch(e){} }, 1000);
+                    }
                 }
             }
 
-            function initRec() {
-                if (!SpeechRec) return null;
+            function setupSpeechRecognizer() {
+                if (!SpeechRec) {
+                    alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+                    return null;
+                }
                 const r = new SpeechRec();
                 r.continuous = false;
-                r.interimResults = true;
+                r.interimResults = false;
                 r.lang = 'en-IN';
 
                 r.onstart = () => {
@@ -288,38 +306,30 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
                 r.onresult = (e) => {
                     if (isAgentSpeaking) return;
-
-                    let transcript = '';
-                    for (let i = e.resultIndex; i < e.results.length; ++i) {
-                        transcript += e.results[i][0].transcript;
-                    }
-                    previewEl.innerText = transcript;
-                    previewEl.style.color = "#38bdf8";
-                    previewEl.style.fontStyle = "normal";
-
-                    if (e.results[0].isFinal) {
-                        statusEl.innerText = "⚡ Submitting to agent...";
-                        indicatorEl.innerText = "⚡ Thinking...";
-                        sendToStreamlit(transcript);
+                    const transcript = e.results[0][0].transcript.trim();
+                    if (transcript.length > 1) {
+                        processUserSpeech(transcript);
                     }
                 };
 
                 r.onerror = (e) => {
-                    if (inCall && e.error !== 'no-speech') console.warn(e.error);
+                    if (inCall && e.error !== 'no-speech') {
+                        console.warn("Speech error:", e.error);
+                    }
                 };
 
                 r.onend = () => {
                     if (inCall && !isAgentSpeaking) {
                         setTimeout(() => {
                             try { r.start(); } catch(err){}
-                        }, 300);
+                        }, 400);
                     }
                 };
 
                 return r;
             }
 
-            function disconnectCall() {
+            function endCallSession() {
                 inCall = false;
                 isAgentSpeaking = false;
                 window.speechSynthesis.cancel();
@@ -328,40 +338,45 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 btnEl.style.background = "#22c55e";
                 statusEl.innerText = "Call completed";
                 statusEl.style.color = "#94a3b8";
-                indicatorEl.innerText = "🔇 Mic Muted";
-                previewEl.innerText = "Call ended. Tap Start Call to connect again.";
-                previewEl.style.color = "#64748b";
-                previewEl.style.fontStyle = "italic";
+                indicatorEl.innerText = "🔇 Audio Idle";
+                indicatorEl.style.color = "#64748b";
+                avatarEl.style.background = "#2563eb";
             }
 
-            function toggleCall() {
-                unlockMobileAudio();
+            async function toggleCall() {
                 if (!inCall) {
+                    // Pre-authorize mic in user click gesture thread
+                    try {
+                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                            await navigator.mediaDevices.getUserMedia({ audio: true });
+                        }
+                    } catch(err) {
+                        console.warn("Microphone pre-check:", err);
+                    }
+                    unlockAudioContext();
+
                     inCall = true;
                     btnEl.innerText = "🔴 End Call";
                     btnEl.style.background = "#ef4444";
-                    statusEl.innerText = "Connecting...";
-
-                    rec = initRec();
-                    const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
-                    previewEl.innerText = greeting;
+                    logEl.innerHTML = "";
+                    statusEl.innerText = "Connecting call...";
                     
-                    playChunkedVoice(greeting, () => {
-                        if (inCall && rec) {
-                            try { rec.start(); } catch(e){}
-                        }
-                    });
+                    rec = setupSpeechRecognizer();
+                    const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
+                    appendLog("KSP Agent", greeting, "#4ade80");
+                    
+                    speakAgentResponse(greeting);
                 } else {
-                    disconnectCall();
+                    endCallSession();
                 }
             }
         </script>
-        """, height=210)
+        """, height=380)
 
         st.markdown("---")
-        st.subheader("💬 Call Transcript & Multi-Turn Dialogue")
-        
-        chat_container = st.container(height=320)
+        st.subheader("💬 Fallback Text Chat")
+
+        chat_container = st.container(height=260)
         with chat_container:
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
@@ -369,7 +384,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 clean_content = msg["content"].replace("[CALL_ENDED]", "").replace("CALL_ENDED", "").strip()
                 st.chat_message(msg["role"], avatar=avatar).write(clean_content)
 
-        user_text = st.chat_input("Speak via the Call Console above or type here...")
+        user_text = st.chat_input("Or type your tax inquiry here...")
         if user_text:
             st.session_state.voice_history.append({"role": "user", "content": user_text})
             with chat_container:
@@ -388,28 +403,6 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 st.chat_message("assistant", avatar="⚖️").write(agent_reply)
                 st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
 
-            # Clean playback without raw tags
-            clean_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
-            components.html(f"""
-                <script>
-                    window.speechSynthesis.cancel();
-                    const sentences = "{clean_speech}".match(/[^.!?]+[.!?]+/g) || ["{clean_speech}"];
-                    let idx = 0;
-                    function speakNext() {{
-                        if (idx >= sentences.length) return;
-                        const u = new SpeechSynthesisUtterance(sentences[idx].trim());
-                        u.lang = 'en-IN';
-                        u.rate = 1.0;
-                        const voices = window.speechSynthesis.getVoices();
-                        const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
-                        if (ind) u.voice = ind;
-                        u.onend = () => {{ idx++; speakNext(); }};
-                        window.speechSynthesis.speak(u);
-                    }}
-                    speakNext();
-                </script>
-            """, height=0)
-
         if st.button("🔄 Reset Conversation History", use_container_width=True):
             st.session_state.voice_history = []
             st.rerun()
@@ -417,10 +410,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
-        * **Mobile Audio Warmup:** Unlocks browser audio context on mobile to prevent cutoffs.
-        * **Zero Spoken Tags:** Cleanly strips internal flags like `[CALL_ENDED]` so the voice never says them aloud.
-        * **Pronunciation Spacing:** Explicitly enunciates 'Section 44 A-D-A' and 'I-T-R 3'.
-        * **Full Compliance Engine:** Tabs 1 through 5 handle GST Rule 36(4), Rule 88C, Section 44AB audits, and 5-year loan CMAs.
+        * **Full WebRTC Mic Pre-Auth:** Requests microphone permissions during the click gesture so mobile and desktop browsers never block speech.
+        * **Direct REST Audio Engine:** Bypasses iframe DOM injection bugs by communicating directly with the `/api/voice/chat` endpoint.
+        * **700ms Echo Guard:** Mic remains completely muted during synthesis and unlocks only after room reverberation dissipates.
+        * **Automatic Form Routing:** Accurately routes to ITR-1, ITR-2, ITR-3, and Section 44ADA.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":

@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 class GeminiVoiceIVRAgent:
     """
     Autonomous Voice IVR Agent for KSP Consulting & Solutions.
-    Engineered with phonetic statutory formatting, strict conversational brevity,
+    Engineered with phonetic statutory formatting, conversational brevity,
     and automatic call-termination signal handling.
     """
 
@@ -28,10 +28,6 @@ class GeminiVoiceIVRAgent:
         return self._client
 
     def _clean_spoken_text(self, text: str) -> str:
-        """
-        Formats acronyms, sections, and removes markdown/internal tags
-        so that text-to-speech engines enunciate them clearly without slurring.
-        """
         # Strip internal protocol flags completely so TTS never speaks them
         text = text.replace("[CALL_ENDED]", "").replace("CALL_ENDED", "").strip()
 
@@ -48,12 +44,6 @@ class GeminiVoiceIVRAgent:
         return text.strip()
 
     def generate_ivr_turn(self, conversation_history: List[Dict[str, str]], user_input: str) -> dict:
-        """
-        Executes a voice conversational turn.
-        Returns a dict containing:
-          - reply: str (cleaned, phonetically formatted response)
-          - call_ended: bool (True if the call has reached conclusion)
-        """
         user_lower = user_input.lower().strip()
         hangup_words = [
             "bye", "goodbye", "cut call", "end call", "disconnect",
@@ -92,7 +82,6 @@ class GeminiVoiceIVRAgent:
 
         try:
             contents = [f"System: {system_instruction}"]
-            # Maintain the recent 6 turns for rapid inference speed
             for turn in conversation_history[-6:]:
                 role = "User" if turn.get("role") == "user" else "Assistant"
                 contents.append(f"{role}: {turn.get('content')}")
