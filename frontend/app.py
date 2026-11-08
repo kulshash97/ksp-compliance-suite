@@ -36,6 +36,13 @@ st.markdown("""
         color: #475569;
         margin-bottom: 20px;
     }
+    .metric-card {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -108,35 +115,35 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice Call & Intake Desk</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Echo-isolated voice intake with automatic mic muting during agent speech.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Hands-free telephony-grade AI intake with chunked Indian English neural audio and acoustic echo cancellation.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("📞 Live Interactive Call Console")
 
-        # Hands-free calling widget with strict echo isolation
+        # Hands-Free Call Console with Sentence Chunking & Strict Mute Lock
         components.html("""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; padding: 22px; border-radius: 16px; color: #f8fafc; border: 1px solid #334155;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <div id="call-avatar" style="width: 40px; height: 40px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px;">⚖️</div>
+                    <div id="call-avatar" style="width: 42px; height: 42px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px;">⚖️</div>
                     <div>
                         <div style="font-weight: 700; font-size: 15px;">KSP Autonomous Tax Agent</div>
                         <div id="call-status" style="font-size: 12px; color: #94a3b8;">Ready to connect</div>
                     </div>
                 </div>
-                <button id="main-call-btn" onclick="toggleCall()" style="background: #22c55e; color: white; border: none; padding: 10px 22px; border-radius: 30px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                <button id="main-call-btn" onclick="toggleCall()" style="background: #22c55e; color: white; border: none; padding: 10px 24px; border-radius: 30px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
                     📞 Start Call
                 </button>
             </div>
 
-            <div id="live-speech-box" style="padding: 12px; background: #020617; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 12px; font-size: 13px; color: #38bdf8; min-height: 42px; display: flex; align-items: center;">
-                <span id="speech-preview" style="color: #64748b; font-style: italic;">Tap Start Call to begin...</span>
+            <div id="live-speech-box" style="padding: 12px 14px; background: #020617; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 12px; font-size: 13px; color: #38bdf8; min-height: 44px; display: flex; align-items: center;">
+                <span id="speech-preview" style="color: #64748b; font-style: italic;">Tap Start Call to begin hands-free conversation...</span>
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
-                <span>Language: Indian English (en-IN)</span>
+                <span>Accent: Indian English (en-IN)</span>
                 <span id="audio-indicator">🔇 Mic Muted</span>
             </div>
         </div>
@@ -154,50 +161,81 @@ if app_mode == "🎙️ Live Voice Intake Desk":
 
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-            function playVoice(text, onDone) {
-                // Strict echo block: silence mic completely while agent speaks
+            // Sentence Chunking Engine (Prevents Chrome 15s audio cutoff bug)
+            function playChunkedVoice(fullText, onDone) {
                 isAgentSpeaking = true;
                 if (rec) {
                     try { rec.abort(); } catch(e){}
                 }
-
                 window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-IN';
-                utterance.rate = 1.0;
-                
-                const voices = window.speechSynthesis.getVoices();
-                const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
-                if (indVoice) utterance.voice = indVoice;
+
+                // Clean call end flags from spoken output
+                const cleanedText = fullText.replace(/\[CALL_ENDED\]/g, '').trim();
+
+                // Split by punctuation
+                let sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [cleanedText];
+                let sIndex = 0;
 
                 indicatorEl.innerText = "🗣️ Agent Speaking (Mic Muted)";
                 indicatorEl.style.color = "#4ade80";
                 avatarEl.style.background = "#10b981";
                 statusEl.innerText = "Agent speaking...";
 
-                const resumeMic = () => {
+                function speakSentence() {
+                    if (sIndex >= sentences.length) {
+                        // 450ms reverberation buffer before unmuting mic
+                        setTimeout(resumeMic, 450);
+                        return;
+                    }
+
+                    const segment = sentences[sIndex].trim();
+                    if (!segment) {
+                        sIndex++;
+                        speakSentence();
+                        return;
+                    }
+
+                    const utterance = new SpeechSynthesisUtterance(segment);
+                    utterance.lang = 'en-IN';
+                    utterance.rate = 1.0;
+
+                    const voices = window.speechSynthesis.getVoices();
+                    const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
+                    if (indVoice) utterance.voice = indVoice;
+
+                    utterance.onend = () => {
+                        sIndex++;
+                        speakSentence();
+                    };
+                    utterance.onerror = () => {
+                        sIndex++;
+                        speakSentence();
+                    };
+
+                    window.speechSynthesis.speak(utterance);
+                }
+
+                function resumeMic() {
                     isAgentSpeaking = false;
                     indicatorEl.innerText = "🎙️ Mic Active";
                     indicatorEl.style.color = "#38bdf8";
                     avatarEl.style.background = "#2563eb";
                     statusEl.innerText = "🎙️ Listening to you...";
+
+                    // If call ended flag was present, hang up automatically
+                    if (fullText.includes('[CALL_ENDED]')) {
+                        disconnectCall();
+                        return;
+                    }
+
                     if (onDone) onDone();
-                };
+                }
 
-                utterance.onend = () => {
-                    // 500ms safety guard to let speaker reverberation dissipate
-                    setTimeout(resumeMic, 500);
-                };
-                utterance.onerror = () => {
-                    setTimeout(resumeMic, 500);
-                };
-
-                window.speechSynthesis.speak(utterance);
+                speakSentence();
             }
 
             function sendToStreamlit(text) {
                 const cleaned = text.trim();
-                // Filter out short echo noise or identical repeats
                 if (!cleaned || cleaned.length < 3 || cleaned === lastSubmitted || isAgentSpeaking) {
                     return;
                 }
@@ -245,7 +283,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 };
 
                 r.onresult = (e) => {
-                    if (isAgentSpeaking) return; // Drop echo audio
+                    if (isAgentSpeaking) return;
 
                     let transcript = '';
                     for (let i = e.resultIndex; i < e.results.length; ++i) {
@@ -277,6 +315,21 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 return r;
             }
 
+            function disconnectCall() {
+                inCall = false;
+                isAgentSpeaking = false;
+                window.speechSynthesis.cancel();
+                if (rec) rec.abort();
+                btnEl.innerText = "📞 Start Call";
+                btnEl.style.background = "#22c55e";
+                statusEl.innerText = "Call completed";
+                statusEl.style.color = "#94a3b8";
+                indicatorEl.innerText = "🔇 Mic Muted";
+                previewEl.innerText = "Call ended. Tap Start Call to connect again.";
+                previewEl.style.color = "#64748b";
+                previewEl.style.fontStyle = "italic";
+            }
+
             function toggleCall() {
                 if (!inCall) {
                     inCall = true;
@@ -288,24 +341,13 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
                     previewEl.innerText = greeting;
                     
-                    playVoice(greeting, () => {
+                    playChunkedVoice(greeting, () => {
                         if (inCall && rec) {
                             try { rec.start(); } catch(e){}
                         }
                     });
                 } else {
-                    inCall = false;
-                    isAgentSpeaking = false;
-                    window.speechSynthesis.cancel();
-                    if (rec) rec.abort();
-                    btnEl.innerText = "📞 Start Call";
-                    btnEl.style.background = "#22c55e";
-                    statusEl.innerText = "Call ended";
-                    statusEl.style.color = "#94a3b8";
-                    indicatorEl.innerText = "🔇 Mic Muted";
-                    previewEl.innerText = "Tap Start Call to begin...";
-                    previewEl.style.color = "#64748b";
-                    previewEl.style.fontStyle = "italic";
+                    disconnectCall();
                 }
             }
         </script>
@@ -319,7 +361,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
                 avatar = "👤" if msg["role"] == "user" else "⚖️"
-                st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
+                st.chat_message(msg["role"], avatar=avatar).write(msg["content"].replace("[CALL_ENDED]", ""))
 
         user_text = st.chat_input("Speak via the Call Console above or type here...")
         if user_text:
@@ -336,21 +378,29 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 else:
                     agent_reply = "Welcome to KSP Consulting. Please check back shortly as the AI desk initializes."
 
-                st.chat_message("assistant", avatar="⚖️").write(agent_reply)
+                display_text = agent_reply.replace("[CALL_ENDED]", "").strip()
+                st.chat_message("assistant", avatar="⚖️").write(display_text)
                 st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
 
-            # Native browser speech synthesis
-            clean_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
+            # Trigger chunked speech output
+            clean_speech = display_text.replace('"', '\\"').replace('\n', ' ')
             components.html(f"""
                 <script>
                     window.speechSynthesis.cancel();
-                    const u = new SpeechSynthesisUtterance("{clean_speech}");
-                    u.lang = 'en-IN';
-                    u.rate = 1.0;
-                    const voices = window.speechSynthesis.getVoices();
-                    const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
-                    if (ind) u.voice = ind;
-                    window.speechSynthesis.speak(u);
+                    const sentences = "{clean_speech}".match(/[^.!?]+[.!?]+/g) || ["{clean_speech}"];
+                    let idx = 0;
+                    function speakNext() {{
+                        if (idx >= sentences.length) return;
+                        const u = new SpeechSynthesisUtterance(sentences[idx].trim());
+                        u.lang = 'en-IN';
+                        u.rate = 1.0;
+                        const voices = window.speechSynthesis.getVoices();
+                        const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+                        if (ind) u.voice = ind;
+                        u.onend = () => {{ idx++; speakNext(); }};
+                        window.speechSynthesis.speak(u);
+                    }}
+                    speakNext();
                 </script>
             """, height=0)
 
@@ -361,10 +411,10 @@ if app_mode == "🎙️ Live Voice Intake Desk":
     with col2:
         st.subheader("Capabilities & Tax Scope")
         st.info("""
-        * **Echo Cancellation Lock:** The microphone turns completely off while the agent speaks so the speaker sound doesn't re-trigger Gemini.
-        * **Turn-Taking Guard:** Only activates the mic after the agent finishes speaking.
-        * **Form & Regime Intelligence:** Evaluates Sections 44ADA, 44AB, and ITR-1 vs ITR-2 for salary and loan scenarios.
-        * **Lead Qualification:** Captures assessee names, phone numbers, and engagement scope.
+        * **Chunked Neural TTS:** Eliminates the Chrome 15-second speech buffer timeout bug.
+        * **Acoustic Echo Lock:** Mic is strictly muted while the agent is speaking to prevent feedback loops.
+        * **Clear Statutory Enunciation:** Pronounces 'Section 44 A-D-A', 'Section 44 A-B', and 'I-T-R 3' clearly.
+        * **Automatic Hangup Detection:** Detects when the call has concluded and resets the line cleanly.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
