@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Dict
 from decimal import Decimal
-from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -20,10 +20,11 @@ from backend.app.db.session import engine, get_db
 from backend.app.db.models import Base, Assessee, IntakeSession, IntakeMessage, ReconciliationRecord
 from backend.app.core.tax_engine import StatutoryTaxEngine
 from backend.app.core.reconciliation import GSTReconciliationPipeline
+from backend.app.core.whatsapp_dispatcher import WhatsAppDispatcher
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="KSP Consulting & Solutions Corporate Gateway", version="3.0.0")
+app = FastAPI(title="KSP Consulting & Solutions Corporate Gateway", version="3.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,12 +69,19 @@ class TaxCalculationRequest(BaseModel):
     is_salaried: bool = False
     salary_income: float = 0.0
 
+class WhatsAppDispatchRequest(BaseModel):
+    phone: str
+    name: str
+    recommended_form: str
+    taxable_profit: Optional[str] = None
+    refund_due: Optional[str] = None
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.0.0", "gemini_active": gemini_client is not None}
+    return {"status": "healthy", "version": "3.1.0", "gemini_active": gemini_client is not None}
 
 @app.post("/api/v1/voice/chat")
-async def secure_voice_turn(payload: ChatPayload, request: Request, db: Session = Depends(get_db)):
+async def secure_voice_turn(payload: ChatPayload, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "127.0.0.1"
     check_rate_limit(client_ip)
 
@@ -128,6 +136,17 @@ async def secure_voice_turn(payload: ChatPayload, request: Request, db: Session 
     db.commit()
 
     return {"reply": reply, "call_ended": is_end, "session_token": token}
+
+@app.post("/api/v1/whatsapp/dispatch")
+async def trigger_whatsapp_dispatch(req: WhatsAppDispatchRequest):
+    result = await WhatsAppDispatcher.dispatch_intake_confirmation(
+        recipient_phone=req.phone,
+        assessee_name=req.name,
+        recommended_form=req.recommended_form,
+        taxable_profit=req.taxable_profit,
+        refund_due=req.refund_due
+    )
+    return result
 
 @app.post("/api/v1/tax/calculate")
 async def calculate_statutory_tax(req: TaxCalculationRequest):

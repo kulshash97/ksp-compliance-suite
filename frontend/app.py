@@ -5,8 +5,8 @@ import jwt
 import os
 import sys
 from pathlib import Path
+import asyncio
 
-# Ensure root directory is on sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -16,6 +16,11 @@ try:
 except Exception:
     GeminiVoiceIVRAgent = None
 
+try:
+    from backend.app.core.whatsapp_dispatcher import WhatsAppDispatcher
+except Exception:
+    WhatsAppDispatcher = None
+
 st.set_page_config(
     page_title="KSP Consulting & Solutions | Autonomous Compliance Suite",
     page_icon="⚖️",
@@ -23,50 +28,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 32px;
-        font-weight: 800;
-        color: #ffffff;
-        margin-bottom: 6px;
-        letter-spacing: -0.8px;
-    }
-    .sub-header {
-        font-size: 15px;
-        color: #94a3b8;
-        margin-bottom: 24px;
-        max-width: 800px;
-        line-height: 1.5;
-    }
-    .metric-card {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 16px;
-        transition: border-color 0.2s;
-    }
-    .metric-card:hover {
-        border-color: #2563eb;
-    }
-    .metric-card h4 {
-        color: #f8fafc;
-        margin-bottom: 6px;
-        font-size: 16px;
-    }
-    .metric-card p {
-        color: #94a3b8;
-        font-size: 13px;
-        margin: 0;
-        line-height: 1.4;
-    }
+    .main-header { font-size: 32px; font-weight: 800; color: #ffffff; margin-bottom: 6px; letter-spacing: -0.8px; }
+    .sub-header { font-size: 15px; color: #94a3b8; margin-bottom: 24px; max-width: 800px; line-height: 1.5; }
+    .metric-card { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 16px; transition: border-color 0.2s; }
+    .metric-card:hover { border-color: #2563eb; }
+    .metric-card h4 { color: #f8fafc; margin-bottom: 6px; font-size: 16px; }
+    .metric-card p { color: #94a3b8; font-size: 13px; margin: 0; line-height: 1.4; }
 </style>
 """, unsafe_allow_html=True)
-
-
-# --- LICENSE VERIFICATION ENGINE ---
 
 def verify_license_token(token_str: str) -> dict:
     if not token_str or not token_str.strip():
@@ -94,20 +65,11 @@ def verify_license_token(token_str: str) -> dict:
         except Exception:
             return {"valid": False, "tier": "Invalid", "type": "none", "message": "Malformed token string"}
 
-
-# --- INITIALIZE AGENT IN SESSION STATE ---
-
 if "ivr_agent" not in st.session_state:
-    if GeminiVoiceIVRAgent:
-        st.session_state.ivr_agent = GeminiVoiceIVRAgent()
-    else:
-        st.session_state.ivr_agent = None
+    st.session_state.ivr_agent = GeminiVoiceIVRAgent() if GeminiVoiceIVRAgent else None
 
 if "voice_history" not in st.session_state:
     st.session_state.voice_history = []
-
-
-# --- SIDEBAR WORKFLOW ---
 
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/scale.png", width=64)
@@ -118,6 +80,7 @@ with st.sidebar:
         "Navigation",
         [
             "🏛️ Live Desk & Corporate Hub",
+            "🏛️ CA Firm Practice Portal",
             "📊 GST Rule 36(4) Inward ITC",
             "⚖️ Rule 88C Outward Matcher",
             "🏢 Sec 44AB Tax Audit Evaluator",
@@ -137,24 +100,15 @@ with st.sidebar:
     else:
         st.info("ℹ️ Mode: Free Audit & Scorecard Preview")
 
-
-# =========================================================================
 # VIEW 1: LIVE DESK & CORPORATE SHOWCASE
-# =========================================================================
 if app_mode == "🏛️ Live Desk & Corporate Hub":
     st.markdown('<div class="main-header">Corporate Advisory & Autonomous Tax Filing</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Engineered for Indian professionals, enterprises, and CA firms. Real-time reconciliation for GST Rule 36(4), presumptive Section 44ADA routing, and certified ITR execution.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.1, 1])
-
     with col1:
-        # EXACT RESTORED BANKING-STYLE VOICE & CHAT DUAL WIDGET
-        api_key = os.getenv("GEMINI_API_KEY", "")
-
         dual_widget_html = """
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b1120; padding: 20px; border-radius: 18px; color: #f8fafc; border: 1px solid #1e293b; box-shadow: 0 20px 40px rgba(0,0,0,0.6); max-width: 480px; margin: 0 auto;">
-            
-            <!-- Header with Dual Pill Toggle -->
             <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 14px; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 18px;">⚖️</span>
@@ -166,7 +120,6 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                 </div>
             </div>
 
-            <!-- PANEL 1: VOICE CALL INTERFACE -->
             <div id="voice-interface" style="display: flex; flex-direction: column; align-items: center;">
                 <div id="voice-avatar" style="width: 76px; height: 76px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 34px; margin: 10px 0 12px 0; transition: all 0.3s; box-shadow: 0 4px 16px rgba(37,99,235,0.3);">⚖️</div>
                 <div id="voice-status" style="font-size: 13px; color: #94a3b8; margin-bottom: 14px;">Tap 'Start Call' to begin voice consultation</div>
@@ -183,7 +136,6 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                 </div>
             </div>
 
-            <!-- PANEL 2: TEXT CHAT INTERFACE -->
             <div id="chat-interface" style="display: none; flex-direction: column; height: 310px;">
                 <div id="chat-stream" style="flex: 1; overflow-y: auto; background: #020617; border-radius: 10px; padding: 12px; border: 1px solid #1e293b; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px;">
                     <div style="align-self: flex-start; background: #1e293b; color: #f8fafc; padding: 8px 12px; border-radius: 12px; border-bottom-left-radius: 3px; max-width: 85%;">
@@ -196,7 +148,6 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                     <button onclick="submitChatMessage()" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">Send</button>
                 </div>
             </div>
-
         </div>
 
         <script>
@@ -209,7 +160,6 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
             let lastProcessed = "";
             let conversationLog = [];
 
-            const GEMINI_KEY = "__GEMINI_KEY__";
             const voiceStatusEl = document.getElementById('voice-status');
             const voiceLogEl = document.getElementById('voice-log');
             const callBtnEl = document.getElementById('btn-call-action');
@@ -349,31 +299,28 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                     appendVoiceLog("You", userText, "#38bdf8");
                 }
 
-                const systemInstruction = 
-                    "You are the autonomous voice & chat tax intake specialist for KSP Consulting & Solutions in India.\\n" +
-                    "1. Maximum brevity: 1-2 crisp sentences only (under 30 words). Never use lists or paragraphs.\\n" +
-                    "2. Routing: Salary + stocks -> Form I-T-R 2. Pure freelance under ₹75L -> Section 44 A-D-A via Form I-T-R 4. Freelance + stocks -> Form I-T-R 3.\\n" +
-                    "3. Lead Capture: Ask for taxpayer name, email, or mobile number.\\n" +
-                    "4. If conversation ends, conclude with: 'Thank you for choosing KSP Consulting. Goodbye.'";
-
-                conversationLog.push({ role: "user", parts: [{ text: userText }] });
-
                 try {
-                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-                    const res = await fetch(endpoint, {
+                    const res = await fetch('/api/v1/voice/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            systemInstruction: { parts: [{ text: systemInstruction }] },
-                            contents: conversationLog
+                            user_input: userText,
+                            session_token: sessionStorage.getItem('ksp_token') || null,
+                            conversation_history: conversationLog.map(m => ({
+                                role: m.role,
+                                content: m.content
+                            }))
                         })
                     });
 
                     const data = await res.json();
-                    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Thank you. Our tax advisory desk will review your details.";
-                    reply = reply.replace(/[*#_`]/g, "").trim();
+                    if (data.session_token) {
+                        sessionStorage.setItem('ksp_token', data.session_token);
+                    }
 
-                    conversationLog.push({ role: "model", parts: [{ text: reply }] });
+                    const reply = data.reply || "Thank you. Our tax advisory desk will review your details.";
+                    conversationLog.push({ role: "user", content: userText });
+                    conversationLog.push({ role: "assistant", content: reply });
 
                     if (isVoice) {
                         appendVoiceLog("KSP Agent", reply, "#4ade80");
@@ -383,7 +330,7 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                     }
 
                 } catch(e) {
-                    const fallback = "Since you have salary and stock capital gains, you will file Form I-T-R 2. Please share your email address to proceed.";
+                    const fallback = "Since you have salary and stock capital gains, Form I-T-R 2 applies. Please share your phone or email.";
                     if (isVoice) {
                         appendVoiceLog("KSP Agent", fallback, "#4ade80");
                         playChunkedVoice(fallback);
@@ -490,7 +437,7 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
                 queryTaxEngine(text, false);
             }
         </script>
-        """.replace("__GEMINI_KEY__", api_key)
+        """
 
         components.html(dual_widget_html, height=430)
 
@@ -515,10 +462,69 @@ if app_mode == "🏛️ Live Desk & Corporate Hub":
         </div>
         """, unsafe_allow_html=True)
 
+# VIEW 2: CA FIRM PRACTICE PORTAL (ITEM 2)
+elif app_mode == "🏛️ CA Firm Practice Portal":
+    st.subheader("🏛️ Chartered Accountancy Multi-Tenant Practice Portal")
+    st.caption("Manage client portfolios, batch generate certified tax audit memos, and embed firm UDIN.")
 
-# =========================================================================
-# VIEW 2: GST RULE 36(4) ITC RECONCILIATION
-# =========================================================================
+    col_ca1, col_ca2 = st.columns([1, 1])
+
+    with col_ca1:
+        st.markdown("#### 📜 Firm Credentials & Letterhead Settings")
+        firm_name = st.text_input("CA Firm / Advisory Name", value="KSP & Associates, Chartered Accountants")
+        firm_frn = st.text_input("Firm Registration Number (FRN)", value="012345S")
+        signing_ca = st.text_input("Signing Partner / Proprietor Name", value="CA Shashank Kulkarni, FCA")
+        membership_no = st.text_input("ICAI Membership Number", value="512345")
+        udin_code = st.text_input("Unique Document Identification Number (UDIN)", value="26512345BKSP9876")
+
+    with col_ca2:
+        st.markdown("#### 👥 Client Engagement File")
+        client_co = st.text_input("Assessee Entity Name", value="Vertex Infotech Private Limited")
+        client_pan = st.text_input("Assessee PAN", value="AAACV1234F")
+        ay_year = st.selectbox("Assessment Year", ["AY 2026-27", "AY 2025-26"])
+        audit_nature = st.selectbox("Engagement Scope", [
+            "Tax Audit Report u/s 44AB (Form 3CA / 3CD)",
+            "Presumptive Professional Certificate u/s 44ADA",
+            "GST Inward ITC Certificate u/r 36(4)"
+        ])
+
+    st.markdown("---")
+    st.markdown("#### 📄 Certified Practice Computation Memo Preview")
+
+    memo_content = f"""
+========================================================================================
+                       {firm_name.upper()}
+       Firm Registration No: {firm_frn} | ICAI Membership No: {membership_no}
+========================================================================================
+
+STATUTORY TAX ADVISORY & COMPLIANCE MEMORANDUM
+Assessment Year: {ay_year}
+Client Name:     {client_co}
+Permanent A/C:   {client_pan}
+Engagement:      {audit_nature}
+UDIN:            {udin_code}
+
+1. STATUTORY FINDINGS:
+   - Presumptive receipts eligible under Section 44ADA verified from 26AS / AIS.
+   - Dual-regime optimization confirmed Section 115BAC yields optimal post-tax net refund.
+   - All inward credit claims conform with CGST Rule 36(4) allowable thresholds.
+
+2. ATTESTATION & SIGN-OFF:
+   Digitally attested by: {signing_ca}
+   For and on behalf of {firm_name}
+   Chartered Accountants
+========================================================================================
+"""
+    st.code(memo_content, language="text")
+
+    st.download_button(
+        label="📥 Download Certified White-Labeled CA Memo (.TXT)",
+        data=memo_content,
+        file_name=f"{client_pan}_{udin_code}_CA_Attested_Memo.txt",
+        mime="text/plain"
+    )
+
+# VIEW 3: GST RULE 36(4) ITC RECONCILIATION
 elif app_mode == "📊 GST Rule 36(4) Inward ITC":
     st.subheader("📊 GST Rule 36(4) Inward ITC Reconciliation")
     st.write("Upload your Purchase Register and official GSTR-2B statement to run invoice-level reconciliation.")
@@ -531,10 +537,7 @@ elif app_mode == "📊 GST Rule 36(4) Inward ITC":
         st.success("✅ **Reconciliation complete:** 100% matched across active GSTINs. ₹0 ineligible ITC claimed.")
         st.info("Statutory variance is within the allowable 5% threshold under CGST Rule 36(4).")
 
-
-# =========================================================================
-# VIEW 3: RULE 88C OUTWARD MATCHER
-# =========================================================================
+# VIEW 4: RULE 88C OUTWARD MATCHER
 elif app_mode == "⚖️ Rule 88C Outward Matcher":
     st.subheader("⚖️ GSTR-1 vs GSTR-3B Liability Matcher (Rule 88C)")
     st.write("Audits outward tax variance to identify potential DRC-01B notices before filing.")
@@ -550,10 +553,7 @@ elif app_mode == "⚖️ Rule 88C Outward Matcher":
         else:
             st.success("✅ **Statutory Compliance:** Variance is ₹0.00. No DRC-01B notice risk.")
 
-
-# =========================================================================
-# VIEW 4: SECTION 44AB TAX AUDIT EVALUATOR
-# =========================================================================
+# VIEW 5: SECTION 44AB TAX AUDIT EVALUATOR
 elif app_mode == "🏢 Sec 44AB Tax Audit Evaluator":
     st.subheader("🏢 Statutory & Tax Audit Threshold Verifier (Sec 44AB)")
     st.write("Determines mandatory audit requirements under the Income Tax Act.")
@@ -571,10 +571,7 @@ elif app_mode == "🏢 Sec 44AB Tax Audit Evaluator":
         else:
             st.warning("⚠️ **Tax Audit Required:** Gross turnover exceeds statutory limits without requisite digital mix.")
 
-
-# =========================================================================
-# VIEW 5: 5-YEAR WORKING CAPITAL LOAN CMA
-# =========================================================================
+# VIEW 6: 5-YEAR WORKING CAPITAL LOAN CMA
 elif app_mode == "📈 5-Yr Bank Loan CMA":
     st.subheader("📈 5-Year Working Capital Loan CMA Modeler")
     st.write("Generates Bank Credit Appraisal Models with projected P&L and Balance Sheet ratios.")
@@ -587,10 +584,7 @@ elif app_mode == "📈 5-Yr Bank Loan CMA":
         st.success("✅ 5-Year Bank Credit Appraisal Model generated successfully.")
         st.metric("Projected Year 5 Revenue", f"₹{base_turnover * 1.61:,.0f}", delta="+61% 5-Yr Growth")
 
-
-# =========================================================================
-# VIEW 6: AUTONOMOUS ITR DUAL-REGIME & FILING PACK
-# =========================================================================
+# VIEW 7: AUTONOMOUS ITR DUAL-REGIME & WHATSAPP TRIGGER (ITEM 3)
 elif app_mode == "📋 ITR Dual-Regime & Filing Pack":
     st.subheader("📋 Autonomous ITR Dual-Regime & Filing Pack Hub")
     st.write("Compares Section 115BAC (New Regime) against Old Regime to maximize tax refunds.")
@@ -603,10 +597,11 @@ elif app_mode == "📋 ITR Dual-Regime & Filing Pack":
     sec_194j_receipts = inc_col1.number_input("Gross Professional / Freelance Receipts (Sec 194J) (₹)", value=1800000.0, step=50000.0)
     tds_deducted = inc_col2.number_input("TDS Deducted under 194J (₹)", value=180000.0, step=10000.0)
 
+    taxpayer_mobile = st.text_input("Taxpayer WhatsApp Mobile Number (e.g., +91 9154429927)", value="+91 9154429927")
+
     if st.button("⚡ Run Autonomous Dual-Regime Audit", key="btn_run_itr"):
         taxable_presumptive_profit = sec_194j_receipts * 0.50
 
-        # Section 115BAC Slabs
         tax_computed = 0.0
         if taxable_presumptive_profit > 1500000:
             tax_computed = 150000 + (taxable_presumptive_profit - 1500000) * 0.30
@@ -629,6 +624,25 @@ elif app_mode == "📋 ITR Dual-Regime & Filing Pack":
         m4.metric("Net Refund Due", f"₹{net_refund:,.0f}", delta=f"₹{net_refund:,.0f}")
 
         st.success("✅ **Regime Decision:** Section 115BAC New Tax Regime yields the lowest statutory liability.")
+
+        st.markdown("---")
+        st.markdown("#### 📲 Automated WhatsApp Lead Confirmation")
+        if st.button("📩 Dispatch Assessment Summary via WhatsApp", key="btn_whatsapp_dispatch"):
+            if WhatsAppDispatcher:
+                with st.spinner("Dispatching statutory summary via WhatsApp..."):
+                    res = asyncio.run(WhatsAppDispatcher.dispatch_intake_confirmation(
+                        recipient_phone=taxpayer_mobile,
+                        assessee_name=taxpayer_name,
+                        recommended_form="ITR-4 (Sugam) under Section 44ADA",
+                        taxable_profit=f"{taxable_profit:,.0f}" if (taxable_profit := taxable_presumptive_profit) else None,
+                        refund_due=f"{net_refund:,.0f}"
+                    ))
+                    if res.get("status") in ("dispatched", "queued_local_sandbox"):
+                        st.success(f"✅ Assessment summary dispatched to {taxpayer_mobile}!")
+                        with st.expander("View WhatsApp Payload"):
+                            st.write(res)
+                    else:
+                        st.warning(f"Dispatch status: {res}")
 
         if license_info["valid"]:
             st.markdown("---")
@@ -662,13 +676,8 @@ elif app_mode == "📋 ITR Dual-Regime & Filing Pack":
                 file_name=f"{taxpayer_pan}_Tax_Computation_AY2026_27.pdf",
                 mime="text/plain"
             )
-        else:
-            st.warning("🔒 **Official CBDT JSON and Audit PDF packages are available for licensed sessions.** Enter your license token in the sidebar to unlock.")
 
-
-# =========================================================================
-# VIEW 7: COMMERCIAL LICENSING & GTM
-# =========================================================================
+# VIEW 8: COMMERCIAL LICENSING & GTM
 elif app_mode == "🏢 Commercial Licensing & GTM":
     st.subheader("🏢 KSP Consulting & Solutions — Commercial GTM")
     st.write("Autonomous compliance infrastructure engineered for direct taxpayers and Chartered Accountancy practitioners.")
