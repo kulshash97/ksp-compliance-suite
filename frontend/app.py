@@ -120,29 +120,91 @@ with st.sidebar:
 
 if app_mode == "🎙️ Live Voice Intake Desk":
     st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Direct in-browser conversational tax desk powered by Gemini 3.8 Flash. Zero third-party webhooks or phone fees required.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct in-browser conversational tax desk powered by Gemini. Zero third-party webhooks or phone fees required.</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1.3, 1])
 
     with col1:
         st.subheader("Live Call Console")
+
+        # Option A: Tap-to-Speak Browser Mic Integration
+        components.html("""
+            <div style="display:flex; justify-content:center; align-items:center; margin-bottom: 12px;">
+                <button id="mic-btn" onclick="startMic()" style="background:#2563eb; color:white; border:none; padding:12px 28px; border-radius:50px; font-size:15px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); transition: all 0.2s;">
+                    🎙️ Tap to Speak (Voice Call)
+                </button>
+            </div>
+            <script>
+                const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRec) {
+                    const btn = document.getElementById('mic-btn');
+                    btn.innerText = "❌ Mic not supported in this browser (Use Chrome)";
+                    btn.style.background = "#64748b";
+                    btn.disabled = true;
+                } else {
+                    const rec = new SpeechRec();
+                    rec.lang = 'en-IN';
+                    rec.continuous = false;
+                    rec.interimResults = false;
+
+                    rec.onstart = () => {
+                        const btn = document.getElementById('mic-btn');
+                        btn.innerText = "🔴 Listening... Speak now";
+                        btn.style.background = "#dc2626";
+                    };
+
+                    rec.onresult = (e) => {
+                        const transcript = e.results[0][0].transcript;
+                        const parentDoc = window.parent.document;
+                        const chatInput = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                        if (chatInput) {
+                            chatInput.value = transcript;
+                            chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            setTimeout(() => {
+                                const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                                if (submitBtn) submitBtn.click();
+                            }, 200);
+                        }
+                    };
+
+                    rec.onerror = (e) => {
+                        console.warn("Speech error:", e.error);
+                        const btn = document.getElementById('mic-btn');
+                        btn.innerText = "🎙️ Tap to Speak (Voice Call)";
+                        btn.style.background = "#2563eb";
+                    };
+
+                    rec.onend = () => {
+                        const btn = document.getElementById('mic-btn');
+                        btn.innerText = "🎙️ Tap to Speak (Voice Call)";
+                        btn.style.background = "#2563eb";
+                    };
+
+                    window.startMic = function() {
+                        try {
+                            rec.start();
+                        } catch(err) {
+                            console.warn("Recognition already active", err);
+                        }
+                    };
+                }
+            </script>
+        """, height=70)
         
-        chat_container = st.container(height=380)
+        chat_container = st.container(height=360)
         with chat_container:
             st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
             for msg in st.session_state.voice_history:
                 avatar = "👤" if msg["role"] == "user" else "⚖️"
                 st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
 
-        user_voice_query = st.chat_input("Speak or type your tax situation (e.g. 'I earned 22 Lakhs from freelance consulting, do I need an audit?')...")
+        user_voice_query = st.chat_input("Speak via the blue button above or type your tax question...")
 
         if user_voice_query:
-            # 1. Record and render user query
             st.session_state.voice_history.append({"role": "user", "content": user_voice_query})
             with chat_container:
                 st.chat_message("user", avatar="👤").write(user_voice_query)
                 with st.spinner("Analyzing statutory eligibility under Sections 44ADA / 44AB..."):
-                    # Direct Python execution to GeminiVoiceIVRAgent
                     reply = st.session_state.ivr_agent.generate_ivr_turn(
                         conversation_history=st.session_state.voice_history[:-1],
                         user_input=user_voice_query
@@ -150,7 +212,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                 st.chat_message("assistant", avatar="⚖️").write(reply)
                 st.session_state.voice_history.append({"role": "assistant", "content": reply})
 
-            # 2. Browser Audio TTS Playback (Speaks reply aloud)
+            # Native Browser Speech Synthesis (Speaks reply aloud)
             escaped_reply = reply.replace('"', '\\"').replace('\n', ' ')
             components.html(f"""
                 <script>
@@ -159,7 +221,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
                     utterance.lang = 'en-IN';
                     utterance.rate = 1.0;
                     const voices = window.speechSynthesis.getVoices();
-                    const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+                    const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices.find(v => v.lang.includes('en-GB')) || voices[0];
                     if (indVoice) utterance.voice = indVoice;
                     window.speechSynthesis.speak(utterance);
                 </script>
@@ -176,7 +238,7 @@ if app_mode == "🎙️ Live Voice Intake Desk":
         * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
         * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts (Section 194J / 194C).
         * **Audit Exemption Flags:** Determines books of accounts relief under Section 44AA and tax audit relief under Section 44AB.
-        * **Browser Speech Synthesis:** Plays response aloud through speakers or headphones in real-time.
+        * **Interactive Speech Synthesis:** Speaks all statutory recommendations aloud in real-time.
         """)
 
 elif app_mode == "🏢 KSP Overview & Pricing":
