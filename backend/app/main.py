@@ -1,3 +1,13 @@
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
+# Serve the full-screen calling app
+@app.get("/call", response_class=HTMLResponse)
+async def serve_call_page():
+    template_path = Path(__file__).resolve().parent / "templates" / "call.html"
+    if template_path.exists():
+        return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Template not found</h1>", status_code=404)
 import os
 import sys
 from pathlib import Path

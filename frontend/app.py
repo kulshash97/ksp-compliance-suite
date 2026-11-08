@@ -1,3 +1,89 @@
+import io
+import speech_recognition as sr
+
+# Under if app_mode == "🎙️ Live Voice Intake Desk":
+if app_mode == "🎙️ Live Voice Intake Desk":
+    st.markdown('<div class="main-header">🎙️ KSP Autonomous Voice & Chat Intake Specialist</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct conversational tax desk powered by Gemini 3.8 Flash.</div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns([1.3, 1])
+
+    with col1:
+        st.subheader("Live Audio & Text Desk")
+        
+        # Link to Option 2 Full-Screen Call Screen
+        st.link_button("📞 Open Hands-Free Full-Screen Voice Call", "/call", use_container_width=True)
+        st.write("")
+
+        # OPTION 1: Native Streamlit Audio Input (Bypasses all iframe security blocks)
+        recorded_audio = st.audio_input("🎙️ Record Voice Query")
+
+        if recorded_audio is not None:
+            # Transcribe recorded audio file in Python
+            try:
+                r = sr.Recognizer()
+                with sr.AudioFile(recorded_audio) as source:
+                    audio_data = r.record(source)
+                    transcribed_text = r.recognize_google(audio_data, language="en-IN")
+                    
+                    if transcribed_text and (not st.session_state.voice_history or st.session_state.voice_history[-1].get("content") != transcribed_text):
+                        st.session_state.voice_history.append({"role": "user", "content": transcribed_text})
+                        
+                        # Generate reply via agent
+                        with st.spinner("Analyzing statutory regulations..."):
+                            agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
+                                conversation_history=st.session_state.voice_history[:-1],
+                                user_input=transcribed_text
+                            )
+                        st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
+            except Exception as e:
+                st.warning(f"Audio transcription note: Please speak clearly into the mic.")
+
+        # Chat display container
+        chat_container = st.container(height=340)
+        with chat_container:
+            st.chat_message("assistant", avatar="⚖️").write("Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?")
+            for msg in st.session_state.voice_history:
+                avatar = "👤" if msg["role"] == "user" else "⚖️"
+                st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
+
+        # Fallback text chat input
+        user_text = st.chat_input("Or type your tax question...")
+        if user_text:
+            st.session_state.voice_history.append({"role": "user", "content": user_text})
+            with chat_container:
+                st.chat_message("user", avatar="👤").write(user_text)
+                with st.spinner("Evaluating tax provisions..."):
+                    agent_reply = st.session_state.ivr_agent.generate_ivr_turn(
+                        conversation_history=st.session_state.voice_history[:-1],
+                        user_input=user_text
+                    )
+                st.chat_message("assistant", avatar="⚖️").write(agent_reply)
+                st.session_state.voice_history.append({"role": "assistant", "content": agent_reply})
+
+            # Play audio reply
+            escaped_speech = agent_reply.replace('"', '\\"').replace('\n', ' ')
+            components.html(f"""
+                <script>
+                    window.speechSynthesis.cancel();
+                    const u = new SpeechSynthesisUtterance("{escaped_speech}");
+                    u.lang = 'en-IN';
+                    window.speechSynthesis.speak(u);
+                </script>
+            """, height=0)
+
+        if st.button("🔄 Reset Conversation", use_container_width=True):
+            st.session_state.voice_history = []
+            st.rerun()
+
+    with col2:
+        st.subheader("Capabilities & Tax Scope")
+        st.info("""
+        * **Option 1 (Native In-App Mic):** Use the official recorder widget to speak without iframe blocks.
+        * **Option 2 (Full-Screen Hands-Free Call):** Tap the blue button above to open the dedicated calling screen with real-time speech looping.
+        * **Section 44ADA Presumptive Screening:** Instantly calculates eligibility under the ₹75 Lakh gross receipts threshold.
+        * **Dual-Regime Routing:** Advises on Form ITR-1 vs ITR-4 selection based on active receipts.
+        """)
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd

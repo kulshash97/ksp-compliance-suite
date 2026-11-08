@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSP Tax Desk — Live Voice Call</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 20%, #1e293b, #090d16);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .call-card {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(16px);
+      width: 100%;
+      max-width: 440px;
+      border-radius: 24px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .avatar-ring {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42px;
+      box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.5);
+      transition: all 0.3s ease;
+      margin-bottom: 18px;
+    }
+    .pulsing {
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6); }
+      70% { box-shadow: 0 0 0 24px rgba(56, 189, 248, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    p.status { font-size: 14px; color: #94a3b8; margin-bottom: 24px; font-weight: 500; }
+    
+    .transcript-window {
+      width: 100%;
+      height: 220px;
+      background: rgba(2, 6, 23, 0.7);
+      border-radius: 16px;
+      border: 1px solid #1e293b;
+      padding: 14px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .msg { margin-bottom: 10px; }
+    .msg strong { font-weight: 600; }
+    .user-msg { color: #38bdf8; }
+    .agent-msg { color: #4ade80; }
+    
+    .btn-action {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      transition: all 0.2s;
+    }
+    .btn-call { background: #22c55e; color: white; box-shadow: 0 10px 20px rgba(34, 197, 94, 0.3); }
+    .btn-end { background: #ef4444; color: white; box-shadow: 0 10px 20px rgba(239, 68, 68, 0.3); }
+    .btn-action:active { transform: scale(0.92); }
+  </style>
+</head>
+<body>
+
+  <div class="call-card">
+    <div id="avatar" class="avatar-ring">⚖️</div>
+    <h1>KSP Tax Advisory Desk</h1>
+    <p id="status-text" class="status">Tap green button to start call</p>
+
+    <div id="transcript" class="transcript-window">
+      <div class="msg" style="color: #64748b;">Ready. You can speak about Section 44ADA, ITR forms, or GST compliance once connected.</div>
+    </div>
+
+    <button id="call-toggle" class="btn-action btn-call" onclick="toggleCall()">📞</button>
+  </div>
+
+  <script>
+    let inCall = false;
+    let rec = null;
+    let history = [];
+    const statusText = document.getElementById('status-text');
+    const avatar = document.getElementById('avatar');
+    const transcript = document.getElementById('transcript');
+    const toggleBtn = document.getElementById('call-toggle');
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    function addMessage(sender, text, isAgent) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (isAgent ? 'agent-msg' : 'user-msg');
+      div.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      transcript.appendChild(div);
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function speak(text, onDone) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.0;
+      u.lang = 'en-IN';
+      const voices = window.speechSynthesis.getVoices();
+      const ind = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+      if (ind) u.voice = ind;
+      
+      u.onend = () => { if (onDone) onDone(); };
+      window.speechSynthesis.speak(u);
+    }
+
+    function initSpeech() {
+      if (!SpeechRec) {
+        alert("Please use Google Chrome or Microsoft Edge for continuous voice calling.");
+        return null;
+      }
+      const r = new SpeechRec();
+      r.continuous = false;
+      r.interimResults = false;
+      r.lang = 'en-IN';
+
+      r.onstart = () => {
+        statusText.innerText = "🎙️ Listening... speak now";
+        avatar.className = "avatar-ring pulsing";
+      };
+
+      r.onresult = async (e) => {
+        const spoken = e.results[0][0].transcript;
+        addMessage("You", spoken, false);
+        statusText.innerText = "⚡ Thinking...";
+        avatar.className = "avatar-ring";
+
+        try {
+          const res = await fetch('/api/voice/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              user_input: spoken,
+              conversation_history: history
+            })
+          });
+          const data = await res.json();
+          addMessage("KSP Agent", data.reply, true);
+          
+          history.push({role: "user", content: spoken});
+          history.push({role: "model", content: data.reply});
+
+          statusText.innerText = "🗣️ Agent speaking...";
+          avatar.className = "avatar-ring pulsing";
+
+          speak(data.reply, () => {
+            if (inCall) {
+              avatar.className = "avatar-ring pulsing";
+              r.start();
+            }
+          });
+        } catch (err) {
+          addMessage("System", "Connection hiccup, listening again...", true);
+          if (inCall) setTimeout(() => r.start(), 1200);
+        }
+      };
+
+      r.onerror = (e) => {
+        if (inCall && e.error !== 'no-speech') console.warn(e.error);
+        if (inCall) setTimeout(() => { try { r.start(); } catch(x){} }, 1000);
+      };
+
+      return r;
+    }
+
+    function toggleCall() {
+      if (!inCall) {
+        inCall = true;
+        toggleBtn.className = "btn-action btn-end";
+        toggleBtn.innerHTML = "📵";
+        transcript.innerHTML = "";
+        
+        rec = initSpeech();
+        const intro = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
+        addMessage("KSP Agent", intro, true);
+        statusText.innerText = "🗣️ Agent greeting...";
+        avatar.className = "avatar-ring pulsing";
+
+        speak(intro, () => {
+          if (inCall && rec) rec.start();
+        });
+      } else {
+        inCall = false;
+        window.speechSynthesis.cancel();
+        if (rec) rec.abort();
+        toggleBtn.className = "btn-action btn-call";
+        toggleBtn.innerHTML = "📞";
+        statusText.innerText = "Call ended";
+        avatar.className = "avatar-ring";
+      }
+    }
+  </script>
+</body>
+</html>
