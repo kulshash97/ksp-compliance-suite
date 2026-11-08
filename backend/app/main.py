@@ -19,7 +19,6 @@ app = FastAPI(
     redoc_url=None
 )
 
-# Cross-Origin Resource Sharing (CORS) for edge browser clients
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,8 +39,6 @@ if api_key:
         print(f"Warning: Failed to initialize Google GenAI client: {err}")
 
 
-# --- DATA MODELS ---
-
 class TurnMessage(BaseModel):
     role: str
     content: str
@@ -51,8 +48,6 @@ class ChatPayload(BaseModel):
     user_input: str
     conversation_history: Optional[List[TurnMessage]] = []
 
-
-# --- SYSTEM INSTRUCTION FOR VOICE & CHAT DESK ---
 
 SYSTEM_INSTRUCTION = """
 You are the autonomous voice & chat tax intake specialist for KSP Consulting & Solutions in India.
@@ -69,8 +64,6 @@ Follow these strict telephony speaking rules:
    'Thank you for choosing KSP Consulting. Have a wonderful day ahead. Goodbye.'
 """
 
-
-# --- ROUTE HANDLERS ---
 
 @app.get("/health")
 async def health_check():
@@ -92,12 +85,75 @@ async def serve_landing_page():
             <head><title>KSP Consulting & Solutions</title></head>
             <body style="font-family: sans-serif; background: #0f172a; color: white; padding: 40px; text-align: center;">
                 <h2>KSP Consulting & Solutions Gateway is Active</h2>
-                <p>Template 'backend/app/templates/index.html' not found. Please upload the template file.</p>
             </body>
         </html>
         """,
         status_code=200
     )
+
+
+@app.get("/suite", response_class=HTMLResponse)
+async def serve_compliance_suite():
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>KSP Autonomous Compliance Suite</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0e1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+        .topbar {
+          height: 48px;
+          background: #0f172a;
+          border-bottom: 1px solid #1e293b;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 20px;
+          color: #f8fafc;
+        }
+        .topbar a {
+          color: #38bdf8;
+          text-decoration: none;
+          font-size: 13px;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .topbar a:hover { text-decoration: underline; }
+        .title { font-size: 14px; font-weight: 700; color: #94a3b8; }
+        iframe {
+          width: 100vw;
+          height: calc(100vh - 48px);
+          border: none;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="topbar">
+        <a href="/">← Back to Institutional Overview</a>
+        <span class="title">⚖️ KSP Statutory & Tax Engine (AY 2026-27)</span>
+      </div>
+      <iframe src="/?embed=true" id="suite-frame"></iframe>
+      <script>
+        // Points to Streamlit instance or internal embedded app
+        const currentHost = window.location.hostname;
+        const port = window.location.port;
+        // If testing on localhost, direct to Streamlit port 8501
+        if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+          document.getElementById('suite-frame').src = 'http://' + currentHost + ':8501';
+        } else {
+          // On Render, if deployed as a unified container
+          document.getElementById('suite-frame').src = window.location.protocol + '//' + window.location.host + '/?view=suite';
+        }
+      </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 
 @app.post("/api/voice/chat")
