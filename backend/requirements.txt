@@ -9,3 +9,5 @@ sqlalchemy>=2.0.28
 asyncpg>=0.29.0
 python-multipart>=0.0.9
 google-genai>=0.1.1
+httpx
+websockets
