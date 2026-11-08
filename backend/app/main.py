@@ -1,35 +1,25 @@
-from fastapi.responses import HTMLResponse
-from pathlib import Path
-
-# Serve the full-screen calling app
-@app.get("/call", response_class=HTMLResponse)
-async def serve_call_page():
-    template_path = Path(__file__).resolve().parent / "templates" / "call.html"
-    if template_path.exists():
-        return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>Template not found</h1>", status_code=404)
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
-from fastapi import FastAPI, Request, Response
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Ensure project root is in sys.path
+# Ensure repository root is on sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.app.agents.voice_ivr_agent import GeminiVoiceIVRAgent
-
 app = FastAPI(
-    title="KSP Autonomous Compliance & Tax Suite API",
-    version="2.0.0",
-    description="Autonomous tax advisory, GST audit, and multi-turn voice IVR platform"
+    title="KSP Consulting & Solutions Corporate Gateway",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url=None
 )
 
-# Enable CORS for browser WebRTC & client-side speech fetches
+# Cross-Origin Resource Sharing (CORS) for edge browser clients
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,137 +28,108 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ivr_agent = GeminiVoiceIVRAgent()
-call_sessions: Dict[str, List[Dict[str, str]]] = {}
+# Gemini Client Initialization
+api_key = os.getenv("GEMINI_API_KEY")
+gemini_client = None
+
+if api_key:
+    try:
+        from google import genai
+        gemini_client = genai.Client(api_key=api_key)
+    except Exception as err:
+        print(f"Warning: Failed to initialize Google GenAI client: {err}")
 
 
-# --- IN-HOUSE BROWSER / MOBILE VOICE ENDPOINTS ---
+# --- DATA MODELS ---
 
-class VoiceTurnRequest(BaseModel):
+class TurnMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatPayload(BaseModel):
     user_input: str
-    conversation_history: List[Dict[str, str]] = []
+    conversation_history: Optional[List[TurnMessage]] = []
 
-@app.get("/")
-def read_root():
-    return {
-        "status": "online",
-        "service": "KSP Compliance Suite Engine",
-        "voice_agent": "Gemini 3.8 Flash (Active)"
-    }
+
+# --- SYSTEM INSTRUCTION FOR VOICE & CHAT DESK ---
+
+SYSTEM_INSTRUCTION = """
+You are the autonomous voice & chat tax intake specialist for KSP Consulting & Solutions in India.
+Follow these strict telephony speaking rules:
+1. BREVITY: Keep answers strictly within 1-2 concise sentences (under 30 words total). Never use bullet points, tables, or markdown asterisks.
+2. STATUTORY PRONUNCIATION & ROUTING:
+   - Always refer to sections with spaces: 'Section 44 A-D-A', 'Section 44 A-B', and forms as 'I-T-R 1', 'I-T-R 2', 'I-T-R 3', or 'I-T-R 4'.
+   - Salaried individuals with capital gains from stocks/mutual funds -> Form I-T-R 2.
+   - Pure freelancers/professionals earning under ₹75 Lakhs without stock trading -> Section 44 A-D-A via Form I-T-R 4.
+   - Freelance earnings combined with stock capital gains or F&O trading -> Form I-T-R 3.
+   - Salaried under ₹50 Lakhs with no capital gains -> Form I-T-R 1.
+3. INTAKE CAPTURE: Once the applicable form is stated, politely ask for their full name, email, or mobile number.
+4. CALL CONCLUSION: When contact details are collected or the user says goodbye, conclude with:
+   'Thank you for choosing KSP Consulting. Have a wonderful day ahead. Goodbye.'
+"""
+
+
+# --- ROUTE HANDLERS ---
 
 @app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "KSP Consulting & Solutions Corporate Gateway",
+        "gemini_connected": gemini_client is not None
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_landing_page():
+    template_path = Path(__file__).resolve().parent / "templates" / "index.html"
+    if template_path.exists():
+        return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        """
+        <html>
+            <head><title>KSP Consulting & Solutions</title></head>
+            <body style="font-family: sans-serif; background: #0f172a; color: white; padding: 40px; text-align: center;">
+                <h2>KSP Consulting & Solutions Gateway is Active</h2>
+                <p>Template 'backend/app/templates/index.html' not found. Please upload the template file.</p>
+            </body>
+        </html>
+        """,
+        status_code=200
+    )
+
 
 @app.post("/api/voice/chat")
-async def voice_chat_endpoint(payload: VoiceTurnRequest):
-    """
-    Direct in-house browser/mobile voice endpoint.
-    Processes transcribed speech through Gemini and returns spoken reply text.
-    """
-    reply = ivr_agent.generate_ivr_turn(
-        conversation_history=payload.conversation_history,
-        user_input=payload.user_input
-    )
-    return {"reply": reply}
+async def handle_intake_turn(payload: ChatPayload):
+    user_text = payload.user_input.strip()
+    if not user_text:
+        return {"reply": "I am listening. How can our tax desk assist you?", "call_ended": False}
 
+    if not gemini_client:
+        return {
+            "reply": "Welcome to KSP Consulting. Our AI tax desk is initializing. Please contact support@kspconsulting.in.",
+            "call_ended": False
+        }
 
-# --- OPTIONAL TELEPHONY WEBHOOKS (TWILIO COMPATIBLE) ---
-
-@app.post("/voice/incoming")
-async def voice_incoming(request: Request):
-    """Fallback inbound carrier webhook."""
     try:
-        from twilio.twiml.voice_response import VoiceResponse, Gather
-        form_data = await request.form()
-        call_sid = form_data.get("CallSid", "default")
-        call_sessions[call_sid] = []
+        contents = [f"System: {SYSTEM_INSTRUCTION}"]
+        for turn in (payload.conversation_history or [])[-6:]:
+            role_tag = "User" if turn.role == "user" else "Assistant"
+            contents.append(f"{role_tag}: {turn.content}")
+        contents.append(f"User: {user_text}")
 
-        response = VoiceResponse()
-        gather = Gather(
-            input="speech",
-            action="/voice/process",
-            method="POST",
-            speech_timeout="auto",
-            language="en-IN"
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="\n".join(contents),
         )
-        gather.say(
-            "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?",
-            voice="Polly.Aditi",
-            language="en-IN"
-        )
-        response.append(gather)
-        response.redirect("/voice/incoming")
-        return Response(content=str(response), media_type="application/xml")
+
+        reply = response.text.strip().replace("*", "").replace("#", "").replace("`", "")
+        is_end = any(phrase in reply.lower() for phrase in ["goodbye", "have a wonderful day ahead", "have a great day"])
+
+        return {
+            "reply": reply,
+            "call_ended": is_end
+        }
     except Exception as e:
-        return Response(content=f"<Response><Say>{str(e)}</Say></Response>", media_type="application/xml")
-
-@app.post("/voice/process")
-async def voice_process(request: Request):
-    """Fallback speech processor for phone carriers."""
-    try:
-        from twilio.twiml.voice_response import VoiceResponse, Gather
-        form_data = await request.form()
-        call_sid = form_data.get("CallSid", "default")
-        caller_speech = form_data.get("SpeechResult", "").strip()
-
-        history = call_sessions.get(call_sid, [])
-        response = VoiceResponse()
-
-        hangup_triggers = ["bye", "hang up", "disconnect", "goodbye"]
-        if any(kw in caller_speech.lower() for kw in hangup_triggers):
-            response.say(
-                "Thank you for contacting KSP Consulting. Have a wonderful day ahead. Goodbye.",
-                voice="Polly.Aditi",
-                language="en-IN"
-            )
-            response.hangup()
-            if call_sid in call_sessions:
-                del call_sessions[call_sid]
-            return Response(content=str(response), media_type="application/xml")
-
-        agent_reply = ivr_agent.generate_ivr_turn(history, caller_speech)
-        history.append({"role": "user", "content": caller_speech})
-        history.append({"role": "model", "content": agent_reply})
-        call_sessions[call_sid] = history
-
-        gather = Gather(
-            input="speech",
-            action="/voice/process",
-            method="POST",
-            speech_timeout="auto",
-            language="en-IN"
-        )
-        gather.say(agent_reply, voice="Polly.Aditi", language="en-IN")
-        response.append(gather)
-        return Response(content=str(response), media_type="application/xml")
-    except Exception as e:
-        return Response(content=f"<Response><Say>{str(e)}</Say></Response>", media_type="application/xml")
-
-@app.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request):
-    """Zero-disk RAM document intake and compliance inquiry via WhatsApp."""
-    try:
-        from twilio.twiml.messaging_response import MessagingResponse
-        form_data = await request.form()
-        body = form_data.get("Body", "").strip()
-        num_media = int(form_data.get("NumMedia", 0))
-
-        response = MessagingResponse()
-        if num_media > 0:
-            response.message(
-                "📥 *KSP Autonomous Ingestion*: Document received in zero-disk memory buffer. "
-                "Running Rule 36(4) reconciliation and TDS credit verification..."
-            )
-        else:
-            reply = ivr_agent.generate_ivr_turn([], body)
-            response.message(reply)
-
-        return Response(content=str(response), media_type="application/xml")
-    except Exception as e:
-        return Response(content=str(e), media_type="text/plain")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)
+        raise HTTPException(status_code=500, detail=f"Inference error: {str(e)}")

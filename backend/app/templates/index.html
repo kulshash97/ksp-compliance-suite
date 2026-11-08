@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSP Consulting & Solutions | Autonomous Corporate & Tax Advisory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-accent: #2563eb;
+      --navy-dark: #0a0f1d;
+      --slate-dark: #0f172a;
+      --slate-card: #1e293b;
+      --emerald: #10b981;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--navy-dark);
+      color: var(--text-main);
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(10, 15, 29, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 18px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-main);
+      text-decoration: none;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, var(--primary-accent), #38bdf8);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      margin-left: 28px;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text-main); }
+
+    /* Hero Section */
+    .hero {
+      max-width: 1200px;
+      margin: 80px auto 60px;
+      padding: 0 24px;
+      text-align: center;
+    }
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(37, 99, 235, 0.12);
+      border: 1px solid rgba(37, 99, 235, 0.3);
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #60a5fa;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: 54px;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.15;
+      margin-bottom: 24px;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #60a5fa, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 780px;
+      margin: 0 auto 36px;
+    }
+    .cta-group {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+    .btn-primary {
+      background: var(--primary-accent);
+      color: white;
+      padding: 14px 30px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 15px;
+      transition: all 0.2s;
+    }
+    .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    /* Pillars Grid */
+    .services-grid {
+      max-width: 1200px;
+      margin: 60px auto 100px;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+    }
+    .service-card {
+      background: var(--slate-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      transition: border-color 0.2s;
+    }
+    .service-card:hover { border-color: var(--primary-accent); }
+    .service-icon {
+      font-size: 32px;
+      margin-bottom: 16px;
+    }
+    .service-card h3 {
+      font-size: 20px;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+    .service-card p {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* Floating Bank-Grade Assistant Widget */
+    .widget-bubble {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary-accent), #1d4ed8);
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      cursor: pointer;
+      z-index: 100;
+      border: 2px solid rgba(255,255,255,0.2);
+      transition: transform 0.2s;
+    }
+    .widget-bubble:hover { transform: scale(1.05); }
+
+    .widget-window {
+      position: fixed;
+      bottom: 104px;
+      right: 28px;
+      width: 400px;
+      height: 580px;
+      background: var(--slate-dark);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 100;
+    }
+    .widget-header {
+      background: #020617;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .widget-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-toggle {
+      display: flex;
+      background: var(--slate-card);
+      border-radius: 20px;
+      padding: 2px;
+    }
+    .mode-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 16px;
+      cursor: pointer;
+    }
+    .mode-btn.active {
+      background: var(--primary-accent);
+      color: white;
+    }
+
+    /* Voice Panel */
+    .panel-voice {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 28px 20px;
+      flex: 1;
+      text-align: center;
+    }
+    .voice-avatar {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: #2563eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin-bottom: 16px;
+      transition: all 0.3s;
+    }
+    .pulsing {
+      animation: pulse 1.6s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.6); }
+      70% { box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    }
+    .voice-status {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      min-height: 20px;
+    }
+    .voice-log-box {
+      width: 100%;
+      height: 180px;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      overflow-y: auto;
+      text-align: left;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    .btn-call-action {
+      background: var(--emerald);
+      color: white;
+      border: none;
+      padding: 10px 28px;
+      border-radius: 30px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* Chat Panel */
+    .panel-chat {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      height: calc(100% - 60px);
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .chat-bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      line-height: 1.4;
+    }
+    .chat-user {
+      align-self: flex-end;
+      background: var(--primary-accent);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-agent {
+      align-self: flex-start;
+      background: var(--slate-card);
+      color: var(--text-main);
+      border-bottom-left-radius: 4px;
+    }
+    .chat-input-row {
+      padding: 12px;
+      background: #020617;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    .chat-input-row input {
+      flex: 1;
+      background: var(--slate-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: white;
+      font-size: 13px;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <a href="#" class="brand">
+      <span class="brand-badge">⚖️</span>
+      KSP Consulting & Solutions
+    </a>
+    <nav>
+      <a href="#services">Statutory Services</a>
+      <a href="/suite">Compliance Suite</a>
+      <a href="#about">About</a>
+    </nav>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-pill">⚡ Autonomous Compliance & Statutory Intelligence</div>
+    <h1>Corporate Advisory & <br><span>Autonomous Tax Filing</span></h1>
+    <p>Engineered for Indian professionals, enterprises, and CA firms. Real-time reconciliation for GST Rule 36(4), presumptive Section 44ADA routing, and certified ITR execution.</p>
+    <div class="cta-group">
+      <a href="/suite" class="btn-primary">Launch Compliance Suite</a>
+      <a href="#services" class="btn-secondary">Explore Solutions</a>
+    </div>
+  </section>
+
+  <!-- Services Grid -->
+  <section class="services-grid" id="services">
+    <div class="service-card">
+      <div class="service-icon">📊</div>
+      <h3>GST Rule 36(4) Inward ITC Engine</h3>
+      <p>Automated invoice-matching against GSTR-2B. Prevents disallowed credit claims and flags non-compliant supplier liability in real time.</p>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">💼</div>
+      <h3>Section 44ADA Presumptive Desk</h3>
+      <p>Direct screening under the ₹75 Lakh receipts threshold for IT and management professionals. Automated dual-regime optimization.</p>
+    </div>
+    <div class="service-card">
+      <div class="service-icon">🏢</div>
+      <h3>Section 44AB Tax Audit Evaluator</h3>
+      <p>Instant verification of turnover ceilings, 95% digital receipts compliance, and mandatory statutory audit requirements.</p>
+    </div>
+  </section>
+
+  <!-- Floating Banking-Style Assistant Widget -->
+  <div class="widget-bubble" onclick="toggleWidget()">🎙️</div>
+
+  <div class="widget-window" id="widget-window">
+    <div class="widget-header">
+      <div class="widget-title">⚖️ KSP Tax & Compliance Desk</div>
+      <div class="mode-toggle">
+        <button id="mode-voice-btn" class="mode-btn active" onclick="switchMode('voice')">Voice</button>
+        <button id="mode-chat-btn" class="mode-btn" onclick="switchMode('chat')">Chat</button>
+      </div>
+    </div>
+
+    <!-- Panel 1: Hands-Free Voice -->
+    <div class="panel-voice" id="panel-voice">
+      <div class="voice-avatar" id="voice-avatar">⚖️</div>
+      <div class="voice-status" id="voice-status">Tap 'Start Call' to begin voice consultation</div>
+      <div class="voice-log-box" id="voice-log">
+        <p style="color:#64748b; margin:0;">Voice transcript will appear here in real time...</p>
+      </div>
+      <button id="btn-call" class="btn-call-action" onclick="toggleCall()">📞 Start Call</button>
+    </div>
+
+    <!-- Panel 2: Interactive Text Chat -->
+    <div class="panel-chat" id="panel-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-bubble chat-agent">Welcome to KSP Consulting. How can our tax desk assist you today?</div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-text-input" placeholder="Ask about Section 44ADA, ITR forms..." onkeydown="if(event.key==='Enter') sendChat()">
+        <button class="btn-primary" style="padding: 8px 14px;" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isWidgetOpen = false;
+    let currentMode = 'voice';
+    let inCall = false;
+    let isAgentSpeaking = false;
+    let rec = null;
+    let silenceTimer = null;
+    let currentTranscript = "";
+    let lastProcessed = "";
+    let history = [];
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    function toggleWidget() {
+      const win = document.getElementById('widget-window');
+      isWidgetOpen = !isWidgetOpen;
+      win.style.display = isWidgetOpen ? 'flex' : 'none';
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      document.getElementById('mode-voice-btn').className = 'mode-btn ' + (mode === 'voice' ? 'active' : '');
+      document.getElementById('mode-chat-btn').className = 'mode-btn ' + (mode === 'chat' ? 'active' : '');
+      document.getElementById('panel-voice').style.display = (mode === 'voice' ? 'flex' : 'none');
+      document.getElementById('panel-chat').style.display = (mode === 'chat' ? 'flex' : 'none');
+    }
+
+    function appendVoiceLog(sender, text, color) {
+      const log = document.getElementById('voice-log');
+      const p = document.createElement('p');
+      p.style.margin = "6px 0";
+      p.innerHTML = `<strong style="color:${color};">${sender}:</strong> ${text}`;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function playChunkedVoice(fullText, onDone) {
+      isAgentSpeaking = true;
+      if (rec) { try { rec.abort(); } catch(e){} }
+      window.speechSynthesis.cancel();
+
+      let text = fullText.replace(/44ADA/gi, "44 A-D-A")
+                         .replace(/44AB/gi, "44 A-B")
+                         .replace(/ITR-(\d)/gi, "I-T-R $1")
+                         .replace(/ITR(\d)/gi, "I-T-R $1")
+                         .replace(/[*#_`]/g, "").trim();
+
+      const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+      let idx = 0;
+
+      const avatar = document.getElementById('voice-avatar');
+      const status = document.getElementById('voice-status');
+      avatar.className = "voice-avatar pulsing";
+      avatar.style.background = "#10b981";
+      status.innerText = "Agent speaking (Mic muted)...";
+
+      function speakNext() {
+        if (idx >= sentences.length) {
+          setTimeout(resumeMic, 600);
+          return;
+        }
+        const u = new SpeechSynthesisUtterance(sentences[idx].trim());
+        u.lang = 'en-IN';
+        u.rate = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const indVoice = voices.find(v => v.lang.includes('en-IN')) || voices[0];
+        if (indVoice) u.voice = indVoice;
+
+        u.onend = () => { idx++; speakNext(); };
+        u.onerror = () => { idx++; speakNext(); };
+        window.speechSynthesis.speak(u);
+      }
+
+      function resumeMic() {
+        isAgentSpeaking = false;
+        avatar.className = "voice-avatar";
+        avatar.style.background = "#2563eb";
+        status.innerText = "🎙️ Listening to you...";
+        if (fullText.toLowerCase().includes('goodbye')) {
+          disconnectCall();
+          return;
+        }
+        if (inCall && rec) { try { rec.start(); } catch(e){} }
+        if (onDone) onDone();
+      }
+
+      speakNext();
+    }
+
+    async function queryTaxBrain(userText) {
+      document.getElementById('voice-status').innerText = "⚡ Analyzing statutory provisions...";
+      appendVoiceLog("You", userText, "#38bdf8");
+
+      try {
+        const res = await fetch('/api/voice/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            user_input: userText,
+            conversation_history: history
+          })
+        });
+        const data = await res.json();
+        const reply = data.reply || "Based on your income, you qualify for Form I-T-R 3. May I have your name and email to proceed?";
+        history.push({role: "user", content: userText});
+        history.push({role: "assistant", content: reply});
+        appendVoiceLog("KSP Agent", reply, "#4ade80");
+        playChunkedVoice(reply);
+      } catch(err) {
+        const fallback = "Since you have salary and stocks, Form I-T-R 2 is applicable. May I take your email?";
+        appendVoiceLog("KSP Agent", fallback, "#4ade80");
+        playChunkedVoice(fallback);
+      }
+    }
+
+    function initRec() {
+      if (!SpeechRec) return null;
+      const r = new SpeechRec();
+      r.continuous = true;
+      r.interimResults = true;
+      r.lang = 'en-IN';
+
+      r.onstart = () => {
+        if (inCall && !isAgentSpeaking) {
+          document.getElementById('voice-status').innerText = "🎙️ Listening to you...";
+        }
+      };
+
+      r.onresult = (e) => {
+        if (isAgentSpeaking) return;
+        let transcript = '';
+        for (let i = 0; i < e.results.length; ++i) {
+          transcript += e.results[i][0].transcript;
+        }
+        currentTranscript = transcript.trim();
+
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (currentTranscript.length > 2 && currentTranscript !== lastProcessed && !isAgentSpeaking) {
+            lastProcessed = currentTranscript;
+            const toSend = currentTranscript;
+            currentTranscript = "";
+            queryTaxBrain(toSend);
+          }
+        }, 1100);
+      };
+
+      r.onend = () => {
+        if (inCall && !isAgentSpeaking) {
+          setTimeout(() => { try { r.start(); } catch(e){} }, 300);
+        }
+      };
+
+      return r;
+    }
+
+    function disconnectCall() {
+      inCall = false;
+      isAgentSpeaking = false;
+      window.speechSynthesis.cancel();
+      if (rec) rec.abort();
+      clearTimeout(silenceTimer);
+      const btn = document.getElementById('btn-call');
+      btn.innerText = "📞 Start Call";
+      btn.style.background = "var(--emerald)";
+      document.getElementById('voice-status').innerText = "Call ended";
+      document.getElementById('voice-avatar').className = "voice-avatar";
+    }
+
+    async function toggleCall() {
+      if (!inCall) {
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+          }
+        } catch(e){}
+
+        inCall = true;
+        const btn = document.getElementById('btn-call');
+        btn.innerText = "🔴 End Call";
+        btn.style.background = "#ef4444";
+        document.getElementById('voice-log').innerHTML = "";
+        document.getElementById('voice-status').innerText = "Connecting...";
+
+        history = [];
+        rec = initRec();
+        const greeting = "Welcome to KSP Consulting and Solutions. How can our tax desk assist you today?";
+        appendVoiceLog("KSP Agent", greeting, "#4ade80");
+        playChunkedVoice(greeting, () => {
+          if (inCall && rec) { try { rec.start(); } catch(e){} }
+        });
+      } else {
+        disconnectCall();
+      }
+    }
+
+    async function sendChat() {
+      const input = document.getElementById('chat-text-input');
+      const val = input.value.trim();
+      if (!val) return;
+      input.value = "";
+
+      const box = document.getElementById('chat-messages');
+      const userBubble = document.createElement('div');
+      userBubble.className = "chat-bubble chat-user";
+      userBubble.innerText = val;
+      box.appendChild(userBubble);
+      box.scrollTop = box.scrollHeight;
+
+      try {
+        const res = await fetch('/api/voice/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ user_input: val, conversation_history: history })
+        });
+        const data = await res.json();
+        const reply = data.reply || "Thank you. Our tax advisory desk will review your profile.";
+        history.push({role: "user", content: val});
+        history.push({role: "assistant", content: reply});
+
+        const agentBubble = document.createElement('div');
+        agentBubble.className = "chat-bubble chat-agent";
+        agentBubble.innerText = reply;
+        box.appendChild(agentBubble);
+        box.scrollTop = box.scrollHeight;
+      } catch(e) {
+        const errBubble = document.createElement('div');
+        errBubble.className = "chat-bubble chat-agent";
+        errBubble.innerText = "Thank you. An advisor will reach out to you shortly.";
+        box.appendChild(errBubble);
+        box.scrollTop = box.scrollHeight;
+      }
+    }
+  </script>
+</body>
+</html>
