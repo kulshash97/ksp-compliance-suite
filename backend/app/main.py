@@ -235,3 +235,32 @@ async def download_memo_pdf(client_name: str = "Client", income: float = 1500000
     except Exception:
         # Fallback to HTML-printable view if weasyprint library has dependencies
         return HTMLResponse(content=html_content)
+
+# --- REVERSE PROXY MOUNT FOR STREAMLIT ---
+import httpx
+from fastapi.responses import StreamingResponse
+
+STREAMLIT_INTERNAL_URL = "http://127.0.0.1:8501"
+
+@app.api_route("/portal/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_streamlit(request: Request, path: str = ""):
+    target_url = f"{STREAMLIT_INTERNAL_URL}/{path}"
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    async with httpx.AsyncClient(base_url=STREAMLIT_INTERNAL_URL, timeout=60.0) as client:
+        body = await request.body()
+        req = client.build_request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            params=request.query_params,
+            content=body
+        )
+        res = await client.send(req, stream=True)
+        return StreamingResponse(
+            res.aiter_raw(),
+            status_code=res.status_code,
+            headers=dict(res.headers),
+            background=None
+        )
