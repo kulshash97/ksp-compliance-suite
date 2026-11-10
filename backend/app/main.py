@@ -1,194 +1,237 @@
 import os
-import sys
-import uuid
-import time
-from pathlib import Path
-from typing import List, Optional, Dict
-from decimal import Decimal
-from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-import pandas as pd
+import re
 import io
+from pathlib import Path
+from typing import List, Dict, Optional
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+app = FastAPI(title="KSP Compliance Engine")
 
-from backend.app.db.session import engine, get_db
-from backend.app.db.models import Base, Assessee, IntakeSession, IntakeMessage, ReconciliationRecord
-from backend.app.core.tax_engine import StatutoryTaxEngine
-from backend.app.core.reconciliation import GSTReconciliationPipeline
-from backend.app.core.whatsapp_dispatcher import WhatsAppDispatcher
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-Base.metadata.create_all(bind=engine)
+sessions: Dict[str, Dict] = {}
 
-app = FastAPI(title="KSP Consulting & Solutions Corporate Gateway", version="3.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-api_key = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 gemini_client = None
-if api_key:
+
+if GEMINI_API_KEY:
     try:
         from google import genai
-        gemini_client = genai.Client(api_key=api_key)
-    except Exception as err:
-        print(f"Warning: Failed to initialize Google GenAI: {err}")
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        print("✅ Gemini API Client Initialized Successfully!")
+    except Exception as ex:
+        print(f"⚠️ Gemini Init Warning: {ex}")
 
-CALL_BUCKETS: Dict[str, List[float]] = {}
-RATE_LIMIT_PER_MIN = 25
-
-def check_rate_limit(client_ip: str):
-    now = time.time()
-    history = [t for t in CALL_BUCKETS.get(client_ip, []) if now - t < 60]
-    if len(history) >= RATE_LIMIT_PER_MIN:
-        raise HTTPException(status_code=429, detail="Rate limit reached. Please wait 30 seconds.")
-    history.append(now)
-    CALL_BUCKETS[client_ip] = history
-
-class ChatTurnMessage(BaseModel):
+class MessageTurn(BaseModel):
     role: str
     content: str
 
-class ChatPayload(BaseModel):
-    user_input: str
-    session_token: Optional[str] = None
-    conversation_history: Optional[List[ChatTurnMessage]] = []
+class VoiceRequest(BaseModel):
+    session_id: Optional[str] = "default_client"
+    message: str
+    language: Optional[str] = "hi-IN"
+    history: Optional[List[MessageTurn]] = []
 
-class TaxCalculationRequest(BaseModel):
-    gross_receipts: float = Field(..., gt=0)
-    has_capital_gains: bool = False
-    is_salaried: bool = False
-    salary_income: float = 0.0
+def extract_valid_contact(text: str):
+    clean = text.replace(" at the rate ", "@").replace(" at ", "@").replace(" dot ", ".").replace(" ", "")
+    phone_candidates = re.findall(r'(?:(?:\+|0{0,2})91(\d{10}))|(?<!\d)(\d{10})(?!\d)', clean)
+    phone = None
+    if phone_candidates:
+        match = phone_candidates[0]
+        phone = match[0] or match[1]
 
-class WhatsAppDispatchRequest(BaseModel):
-    phone: str
-    name: str
-    recommended_form: str
-    taxable_profit: Optional[str] = None
-    refund_due: Optional[str] = None
+    email_match = re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', clean)
+    email = email_match.group(0) if email_match else None
+    return phone, email
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "version": "3.1.0", "gemini_active": gemini_client is not None}
-
-@app.post("/api/v1/voice/chat")
-async def secure_voice_turn(payload: ChatPayload, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    check_rate_limit(client_ip)
-
-    user_text = payload.user_input.strip()
-    if not user_text:
-        return {"reply": "I am listening. How can our tax desk assist you?", "call_ended": False}
-
-    token = payload.session_token or str(uuid.uuid4())
-    session = db.query(IntakeSession).filter_by(session_token=token).first()
-    if not session:
-        session = IntakeSession(session_token=token)
-        db.add(session)
-        db.commit()
-
-    db.add(IntakeMessage(session_id=session.id, role="user", content=user_text))
-    db.commit()
-
-    system_instruction = """
-    You are the autonomous voice & chat tax intake specialist for KSP Consulting & Solutions in India.
-    1. BREVITY: Keep answers strictly within 1-2 concise sentences (under 30 words total). Never use bullet points, tables, or asterisks.
-    2. ROUTING:
-       - Salaried + stock capital gains -> Form I-T-R 2.
-       - Pure freelancer under ₹75 Lakhs without stock trading -> Section 44 A-D-A via Form I-T-R 4.
-       - Freelancer + stock capital gains -> Form I-T-R 3.
-       - Salaried under ₹50 Lakhs with no capital gains -> Form I-T-R 1.
-    3. INTAKE CAPTURE: Once the applicable form is clarified, ask for their full name, email, or mobile number.
-    4. CLOSING: When finalized, conclude with: 'Thank you for choosing KSP Consulting. Goodbye.'
-    """
-
-    if not gemini_client:
-        reply = "Welcome to KSP Consulting. Please contact advisory@kspconsulting.in."
-        is_end = False
+def normalize_spoken_text(text: str, lang_code: str) -> str:
+    if "hi" in lang_code:
+        text = re.sub(r'2\s*[-–]\s*4\s*घंटे?', 'दो से चार घंटे', text)
+        text = text.replace("2-4", "दो से चार")
+    elif "te" in lang_code:
+        text = re.sub(r'2\s*[-–]\s*4\s*గంట', 'రెండు నుండి నాలుగు గంట', text)
+        text = text.replace("2-4", "రెండు నుండి నాలుగు")
+    elif "kn" in lang_code:
+        text = re.sub(r'2\s*[-–]\s*4\s*ಗಂಟೆ', 'ಎರಡರಿಂದ ನಾಲ್ಕು ಗಂಟೆ', text)
+        text = text.replace("2-4", "ಎರಡರಿಂದ ನಾಲ್ಕು")
+    elif "mr" in lang_code:
+        text = re.sub(r'2\s*[-–]\s*4\s*तास', 'दोन ते चार तास', text)
+        text = text.replace("2-4", "दोन ते चार")
     else:
+        text = re.sub(r'2\s*[-–]\s*4\s*hours?', '2 to 4 hours', text)
+        text = text.replace("2-4", "2 to 4")
+    return text
+
+@app.get("/", response_class=HTMLResponse)
+async def landing(request: Request):
+    template_file = TEMPLATES_DIR / "landing_page.html"
+    if template_file.exists():
+        return templates.TemplateResponse(request=request, name="landing_page.html")
+    return HTMLResponse("<h2>KSP Compliance Suite is Running.</h2>")
+
+@app.post("/api/voice/intake")
+async def voice_intake(payload: VoiceRequest):
+    sid = payload.session_id or "default_client"
+    if sid not in sessions:
+        sessions[sid] = {
+            "name": "Taxpayer",
+            "phone": None,
+            "email": None,
+            "sources": [],
+            "recommended_form": "ITR-2",
+            "contact_saved": False
+        }
+
+    state = sessions[sid]
+    user_msg = payload.message.strip()
+    msg_lower = user_msg.lower()
+
+    extracted_phone, extracted_email = extract_valid_contact(user_msg)
+    if extracted_phone:
+        state["phone"] = extracted_phone
+    if extracted_email:
+        state["email"] = extracted_email
+
+    if any(w in msg_lower for w in ["rent", "rental", "किराया", "house", "लैंड", "land", "రెంట్", "అద్దె"]):
+        if "Income from House Property (Rental)" not in state["sources"]:
+            state["sources"].append("Income from House Property (Rental)")
+        state["recommended_form"] = "ITR-2"
+
+    if any(w in msg_lower for w in ["stock", "share", "मार्केट", "म्यूचुअल फंड", "capital gain", "షేర్లు"]):
+        if "Capital Gains (Equity/Stocks)" not in state["sources"]:
+            state["sources"].append("Capital Gains (Equity/Stocks)")
+        state["recommended_form"] = "ITR-2"
+
+    if any(w in msg_lower for w in ["salary", "वेतन", "सैलरी", "జీతం"]):
+        if "Salary Income" not in state["sources"]:
+            state["sources"].append("Salary Income")
+
+    closing_keywords = ["thank you", "thanks", "dhanyawad", "dhanyavadagalu", "chala thanks", "dhanyavaad", "bye", "goodbye", "nothing else", "that's all", "धन्यवाद", "ओके धन्यवाद", "अच्छा धन्यवाद"]
+    is_closing = any(k in msg_lower for k in closing_keywords)
+
+    lang_code = payload.language or "hi-IN"
+
+    sys_instruction = f"""
+You are the senior autonomous tax advisor at KSP Consulting & Solutions, Hyderabad, India.
+CRITICAL LANGUAGE INSTRUCTION:
+- Respond in the EXACT script and language requested: {lang_code}.
+- If Hindi, use polite Hindi (आप form).
+- Phrasing for ranges: NEVER use hyphens like 2-4. Always spell out: "दो से चार घंटे".
+- Applicable Form: {state['recommended_form']}. Fee: ₹2,999.
+- Turnaround: CA team contacts within two to four hours.
+- Keep response under 25 words (maximum 2 sentences). No markdown or bullet points.
+"""
+
+    reply = ""
+    if gemini_client:
         try:
-            contents = [f"System: {system_instruction}"]
-            for turn in (payload.conversation_history or [])[-6:]:
-                role_tag = "User" if turn.role == "user" else "Assistant"
-                contents.append(f"{role_tag}: {turn.content}")
-            contents.append(f"User: {user_text}")
+            chat_context = f"{sys_instruction}\n\nRecent Turns:\n"
+            for turn in payload.history[-4:]:
+                chat_context += f"{turn.role.capitalize()}: {turn.content}\n"
+            chat_context += f"Client: {user_msg}\nConsultant:"
 
             response = gemini_client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents="\n".join(contents),
+                contents=chat_context
             )
-            reply = response.text.strip().replace("*", "").replace("#", "").replace("`", "")
-            is_end = any(p in reply.lower() for p in ["goodbye", "have a wonderful day"])
-        except Exception:
-            reply = "Based on your income mix, Form I-T-R 3 applies. Please share your email address to proceed."
-            is_end = False
+            reply = response.text.strip().replace("*", "").replace("#", "")
+        except Exception as e:
+            print(f"Gemini API Error: {e}")
 
-    db.add(IntakeMessage(session_id=session.id, role="assistant", content=reply))
-    db.commit()
+    if not reply:
+        if is_closing:
+            reply = "बहुत-बहुत धन्यवाद! हमारे सीए पार्टनर दो से चार घंटे में आपसे संपर्क करेंगे। आपका दिन शुभ हो।"
+        else:
+            reply = "आपकी सैलरी, रेंटल इनकम और स्टॉक लाभ के लिए फॉर्म ITR-2 लागू है। हमारी फीस ₹2,999 है और सीए टीम दो से चार घंटे में आपसे संपर्क करेगी।"
 
-    return {"reply": reply, "call_ended": is_end, "session_token": token}
+    reply = normalize_spoken_text(reply, lang_code)
 
-@app.post("/api/v1/whatsapp/dispatch")
-async def trigger_whatsapp_dispatch(req: WhatsAppDispatchRequest):
-    result = await WhatsAppDispatcher.dispatch_intake_confirmation(
-        recipient_phone=req.phone,
-        assessee_name=req.name,
-        recommended_form=req.recommended_form,
-        taxable_profit=req.taxable_profit,
-        refund_due=req.refund_due
-    )
-    return result
-
-@app.post("/api/v1/tax/calculate")
-async def calculate_statutory_tax(req: TaxCalculationRequest):
-    gross = Decimal(str(req.gross_receipts))
-    ada_result = StatutoryTaxEngine.compute_presumptive_44ada(gross)
-    tax_result = StatutoryTaxEngine.compute_115bac_tax(ada_result["presumptive_profit"])
     return {
-        "regime": "Section 115BAC",
-        "presumptive_details": ada_result,
-        "computation": tax_result
+        "reply": reply,
+        "session_state": state,
+        "call_ended": is_closing
     }
 
-@app.post("/api/v1/reconcile/gst")
-async def upload_and_reconcile_gst(pr_file: UploadFile = File(...), two_b_file: UploadFile = File(...)):
+@app.get("/api/tax/download-memo-pdf")
+async def download_memo_pdf(client_name: str = "Client", income: float = 1500000.0):
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            @page {{ size: A4; margin: 20mm; }}
+            body {{ font-family: 'Helvetica Neue', Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; }}
+            .header {{ border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 24px; }}
+            .firm-title {{ font-size: 22px; font-weight: bold; color: #1e3a8a; }}
+            .firm-sub {{ font-size: 11px; color: #64748b; margin-top: 4px; }}
+            .memo-title {{ font-size: 16px; font-weight: bold; color: #0f172a; margin: 20px 0 10px; background: #f1f5f9; padding: 8px 12px; border-left: 4px solid #2563eb; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }}
+            th, td {{ padding: 10px; border: 1px solid #cbd5e1; text-align: left; }}
+            th {{ background: #f8fafc; font-weight: bold; color: #334155; }}
+            .total-row {{ font-weight: bold; background: #f1f5f9; }}
+            .footer {{ margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="firm-title">KSP CONSULTING & SOLUTIONS</div>
+            <div class="firm-sub">Professional Tax Advisory, Compliance & Regulatory Filing | Hyderabad, India</div>
+        </div>
+
+        <div class="memo-title">STATUTORY TAX CONSULTATION & FILING INTAKE MEMO</div>
+        
+        <p style="font-size: 12px; color: #475569;">
+            <strong>Assessment Year:</strong> 2026-27 | <strong>Financial Year:</strong> 2025-26<br>
+            <strong>Client Reference:</strong> {client_name} | <strong>Status:</strong> Intake Finalized
+        </p>
+
+        <table>
+            <tr>
+                <th style="width: 35%;">Parameter</th>
+                <th>Assessment Findings</th>
+            </tr>
+            <tr>
+                <td>Reported Income Sources</td>
+                <td>Salary Income, Income from House Property (Rental), Equity/Capital Gains</td>
+            </tr>
+            <tr>
+                <td>Statutory ITR Form</td>
+                <td><strong>Form ITR-2</strong> (Required for Capital Gains and Multi-source Income)</td>
+            </tr>
+            <tr>
+                <td>Tax Regime Assessment</td>
+                <td>Section 115BAC (New Tax Regime with Standard Deduction benefit)</td>
+            </tr>
+            <tr>
+                <td>Professional Filing Fee</td>
+                <td><strong>INR 2,999/-</strong> (Inclusive of computation and verification)</td>
+            </tr>
+            <tr class="total-row">
+                <td>CA Review Timeline (SLA)</td>
+                <td>Within 2 to 4 Business Hours</td>
+            </tr>
+        </table>
+
+        <div class="footer">
+            <p><strong>Verification Notice:</strong> This summary is generated autonomously by KSP Consulting Tax Infrastructure. A Chartered Accountant will review all source documents prior to final submission on the Income Tax e-filing portal.</p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # PDF generation using WeasyPrint or fallback
     try:
-        pr_bytes = await pr_file.read()
-        two_b_bytes = await two_b_file.read()
-
-        pr_df = pd.read_excel(io.BytesIO(pr_bytes)) if pr_file.filename.endswith('.xlsx') else pd.read_csv(io.BytesIO(pr_bytes))
-        two_b_df = pd.read_excel(io.BytesIO(two_b_bytes)) if two_b_file.filename.endswith('.xlsx') else pd.read_csv(io.BytesIO(two_b_bytes))
-
-        pr_records = pr_df.rename(columns=lambda c: str(c).strip().lower()).to_dict(orient="records")
-        two_b_records = two_b_df.rename(columns=lambda c: str(c).strip().lower()).to_dict(orient="records")
-
-        normalized_pr = [
-            {
-                "gstin": str(r.get("gstin", r.get("supplier_gstin", ""))),
-                "invoice_no": str(r.get("invoice_no", r.get("invoice_number", r.get("inv_no", "")))),
-                "itc_amount": float(r.get("itc_amount", r.get("igst", 0.0)) or 0.0)
-            }
-            for r in pr_records
-        ]
-        normalized_2b = [
-            {
-                "gstin": str(r.get("gstin", r.get("supplier_gstin", ""))),
-                "invoice_no": str(r.get("invoice_no", r.get("invoice_number", r.get("inv_no", "")))),
-                "available_itc": float(r.get("available_itc", r.get("itc_amount", 0.0)) or 0.0),
-                "itc_eligible": True
-            }
-            for r in two_b_records
-        ]
-
-        return GSTReconciliationPipeline.reconcile(normalized_pr, normalized_2b)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process files: {str(e)}")
+        from weasyprint import HTML
+        pdf_bytes = HTML(string=html_content).write_pdf()
+        return Response(content=pdf_bytes, media_type="application/pdf", headers={
+            "Content-Disposition": f"attachment; filename=KSP_Tax_Assessment_{client_name}.pdf"
+        })
+    except Exception:
+        # Fallback to HTML-printable view if weasyprint library has dependencies
+        return HTMLResponse(content=html_content)

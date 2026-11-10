@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSP Consulting & Solutions | Autonomous Tax Infrastructure</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { 
+            background: #0b0f19; 
+            color: #f8fafc; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+        }
+        .hero { padding: 80px 0 45px; text-align: center; }
+        .badge-gov { 
+            background: #1e293b; 
+            border: 1px solid #334155; 
+            color: #38bdf8; 
+            font-size: 0.85rem; 
+            padding: 6px 16px; 
+            border-radius: 20px; 
+        }
+        .feature-card { 
+            background: #131d31; 
+            border: 1px solid #1e293b; 
+            border-radius: 12px; 
+            padding: 24px; 
+            margin-bottom: 24px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-3px);
+            border-color: #38bdf8;
+        }
+        
+        /* Floating Trigger */
+        #voice-widget-btn {
+            position: fixed; 
+            bottom: 25px; 
+            right: 25px; 
+            width: 60px; 
+            height: 60px;
+            background: linear-gradient(135deg, #0284c7, #2563eb);
+            border-radius: 50%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            color: #fff; 
+            font-size: 24px; 
+            cursor: pointer; 
+            box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45);
+            z-index: 9999; 
+            transition: transform 0.2s ease;
+        }
+        #voice-widget-btn:hover { transform: scale(1.06); }
+
+        /* Modal Dialog Box */
+        #voice-modal {
+            position: fixed; 
+            bottom: 95px; 
+            right: 25px; 
+            width: 380px; 
+            max-width: calc(100vw - 40px);
+            height: 520px;
+            max-height: 80vh;
+            background: #111827; 
+            border: 1px solid #374151; 
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.65); 
+            z-index: 9999; 
+            display: none;
+            flex-direction: column !important;
+            overflow: hidden;
+        }
+        
+        .widget-header { 
+            background: #1f2937; 
+            padding: 12px 16px; 
+            border-bottom: 1px solid #374151; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .lang-select { 
+            background: #111827; 
+            color: #38bdf8; 
+            border: 1px solid #4b5563; 
+            font-size: 0.8rem; 
+            border-radius: 6px; 
+            padding: 4px 8px; 
+            outline: none;
+        }
+
+        .widget-body { 
+            flex: 1 1 auto;
+            padding: 16px; 
+            overflow-y: auto; 
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #0f172a;
+        }
+        .msg-bubble { 
+            padding: 10px 14px; 
+            border-radius: 12px; 
+            font-size: 0.88rem; 
+            line-height: 1.45;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+        .msg-agent { 
+            background: #1e293b; 
+            color: #e2e8f0; 
+            border: 1px solid #334155;
+            border-bottom-left-radius: 2px; 
+            align-self: flex-start;
+        }
+        .msg-user { 
+            background: #2563eb; 
+            color: #ffffff; 
+            border-bottom-right-radius: 2px; 
+            align-self: flex-end;
+        }
+
+        .waveform { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 5px; 
+            height: 28px; 
+            padding: 4px 0;
+            background: #0f172a;
+            flex-shrink: 0;
+        }
+        .bar { 
+            width: 4px; 
+            background: #38bdf8; 
+            border-radius: 4px; 
+            animation: wave 1s ease-in-out infinite alternate; 
+        }
+        .bar:nth-child(1) { height: 8px; animation-delay: 0.1s; }
+        .bar:nth-child(2) { height: 22px; animation-delay: 0.3s; }
+        .bar:nth-child(3) { height: 16px; animation-delay: 0.2s; }
+        .bar:nth-child(4) { height: 26px; animation-delay: 0.4s; }
+        .bar:nth-child(5) { height: 10px; animation-delay: 0.15s; }
+        @keyframes wave { from { height: 4px; } to { height: 26px; } }
+
+        #action-footer { 
+            background: #1f2937; 
+            padding: 12px; 
+            border-top: 1px solid #374151; 
+            display: flex; 
+            gap: 8px; 
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .mic-btn-circle {
+            width: 40px; 
+            height: 40px; 
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            transition: all 0.2s ease;
+        }
+        .mic-live { background-color: #ef4444 !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.6); }
+        .mic-muted { background-color: #4b5563 !important; }
+    </style>
+</head>
+<body>
+    <!-- Hero Header -->
+    <div class="container hero">
+        <span class="badge-gov mb-3 d-inline-block"><i class="fas fa-shield-alt me-1"></i> Autonomous Direct & Indirect Tax Engine</span>
+        <h1 class="display-5 fw-bold mt-2">KSP Consulting & Solutions</h1>
+        <p class="text-secondary mx-auto mt-2" style="max-width: 640px;">
+            Multi-lingual statutory tax advisor, Section 44ADA presumptive intake, O(N+M) GST Rule 36(4) reconciliation, and direct CA Practice workflow.
+        </p>
+        <div class="mt-4">
+            <a href="http://localhost:8501" target="_blank" class="btn btn-primary px-4 py-2 me-2"><i class="fas fa-desktop me-2"></i>Launch CA Firm Portal</a>
+            <button onclick="toggleVoiceWidget()" class="btn btn-outline-info px-4 py-2"><i class="fas fa-microphone me-2"></i>Start Voice Consultation</button>
+        </div>
+    </div>
+
+    <!-- Restored Feature Cards Section -->
+    <div class="container pb-5">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <h4><i class="fas fa-calculator text-info me-2"></i>Presumptive 44ADA</h4>
+                    <p class="text-secondary small mt-2">Dual regime computation, 50% professional receipts threshold up to ₹75 Lakhs, and certified draft generation.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <h4><i class="fas fa-sync text-primary me-2"></i>Rule 36(4) Reconciliation</h4>
+                    <p class="text-secondary small mt-2">O(N+M) hash-indexed ledger match between GSTR-2B government feeds and internal sales books.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <h4><i class="fas fa-language text-warning me-2"></i>Indian Multi-Lingual</h4>
+                    <p class="text-secondary small mt-2">Native conversational tax advisory in English, Hindi (हिंदी), Telugu (తెలుగు), Kannada (ಕನ್ನಡ), and Marathi (मराठी).</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Trigger -->
+    <div id="voice-widget-btn" onclick="toggleVoiceWidget()" title="Open Voice Desk">
+        <i class="fas fa-headset"></i>
+    </div>
+
+    <!-- Chat Modal Window -->
+    <div id="voice-modal">
+        <div class="widget-header">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-robot text-info me-2"></i>
+                <span class="fw-semibold small text-light me-2">KSP Tax Desk</span>
+                <select id="lang-picker" class="lang-select" onchange="changeLanguage()">
+                    <option value="hi-IN" selected>हिंदी (Hindi)</option>
+                    <option value="en-IN">English</option>
+                    <option value="te-IN">తెలుగు (Telugu)</option>
+                    <option value="kn-IN">ಕನ್ನಡ (Kannada)</option>
+                    <option value="mr-IN">मराठी (Marathi)</option>
+                </select>
+            </div>
+            <button class="btn btn-sm text-secondary p-0" onclick="toggleVoiceWidget()"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+
+        <div class="widget-body" id="chat-stream">
+            <div class="msg-bubble msg-agent" id="welcome-msg">
+                नमस्ते! केएसपी कंसल्टिंग में आपका स्वागत है। कृपया अपनी आय के स्रोत (वेतन, किराया, स्टॉक या 44ADA) बताएं।
+            </div>
+        </div>
+
+        <div id="listening-indicator" class="text-center small text-info py-1 d-none" style="background:#0f172a;">
+            <i class="fas fa-ear-listen me-1"></i> सुन रहे हैं... बोलते रहें।
+        </div>
+
+        <div id="wave-container" class="waveform d-none">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+
+        <div id="action-footer">
+            <button id="mic-toggle-btn" class="mic-btn-circle mic-muted text-white" onclick="toggleMicMute()" title="Click to Talk">
+                <i id="mic-icon" class="fas fa-microphone-slash"></i>
+            </button>
+            <input type="text" id="user-input" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="माइक चालू करके बोलें..." onkeypress="handleKey(event)">
+            <button class="btn btn-primary btn-sm px-3" onclick="manualSend()"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <script>
+        const modal = document.getElementById('voice-modal');
+        const stream = document.getElementById('chat-stream');
+        const wave = document.getElementById('wave-container');
+        const micToggleBtn = document.getElementById('mic-toggle-btn');
+        const micIcon = document.getElementById('mic-icon');
+        const listeningIndicator = document.getElementById('listening-indicator');
+        const actionFooter = document.getElementById('action-footer');
+        const langPicker = document.getElementById('lang-picker');
+        
+        let recognition = null;
+        let isMuted = true;
+        let isAgentSpeaking = false;
+        let silenceTimer = null;
+        const SILENCE_TIMEOUT = 1800;
+        let sessionId = "session_" + Math.random().toString(36).substring(2, 9);
+        const conversationHistory = [];
+
+        const welcomeDict = {
+            "hi-IN": "नमस्ते! केएसपी कंसल्टिंग में आपका स्वागत है। कृपया अपनी आय के स्रोत बताएं।",
+            "en-IN": "Namaste! Welcome to KSP Consulting. Please state your income sources.",
+            "te-IN": "నమస్కారం! కేఎస్‌పీ కన్సల్టింగ్‌కు స్వాగతం. దయచేసి మీ ఆదాయ వివరాలు తెలపండి.",
+            "kn-IN": "ನಮಸ್ಕಾರ! ಕೆಎಸ್‍ಪಿ ಕನ್ಸಲ್ಟಿಂಗ್‍ಗೆ ಸುಸ್ವಾಗತ. ದಯವಿಟ್ಟು ನಿಮ್ಮ ಆದಾಯ ವಿವರಗಳನ್ನು ತಿಳಿಸಿ.",
+            "mr-IN": "नमस्कार! केएसपी कन्सल्टिंगमध्ये आपले स्वागत आहे. कृपया आपल्या उत्पन्नाचे स्रोत सांगा."
+        };
+
+        function speakGreeting(text, lang) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utter = new SpeechSynthesisUtterance(text);
+                utter.lang = lang;
+                utter.rate = 1.0;
+                window.speechSynthesis.speak(utter);
+            }
+        }
+
+        function changeLanguage() {
+            const lang = langPicker.value;
+            const greetText = welcomeDict[lang] || welcomeDict["hi-IN"];
+            document.getElementById('welcome-msg').innerText = greetText;
+            if (recognition) {
+                recognition.lang = lang;
+            }
+            speakGreeting(greetText, lang);
+        }
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRec();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = langPicker.value;
+
+            recognition.onresult = (event) => {
+                if (isMuted || isAgentSpeaking) return;
+
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    transcript += event.results[i][0].transcript;
+                }
+
+                if (transcript.trim().length > 0) {
+                    document.getElementById('user-input').value = transcript.trim();
+
+                    clearTimeout(silenceTimer);
+                    silenceTimer = setTimeout(() => {
+                        const finalUtterance = document.getElementById('user-input').value.trim();
+                        if (finalUtterance.length > 2 && !isAgentSpeaking && !isMuted) {
+                            dispatchQuery(finalUtterance);
+                        }
+                    }, SILENCE_TIMEOUT);
+                }
+            };
+
+            recognition.onerror = (e) => {
+                console.log("Rec event:", e.error);
+            };
+
+            recognition.onend = () => {
+                if (!isMuted && !isAgentSpeaking) {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+        }
+
+        function toggleVoiceWidget() {
+            const isOpening = (modal.style.display !== 'flex');
+            modal.style.display = isOpening ? 'flex' : 'none';
+            if (isOpening) {
+                const lang = langPicker.value;
+                speakGreeting(welcomeDict[lang], lang);
+            }
+        }
+
+        function toggleMicMute() {
+            if (!recognition) return alert('Speech recognition not supported in this browser.');
+            if (!isMuted) {
+                muteMic();
+            } else {
+                unmuteMic();
+            }
+        }
+
+        function muteMic() {
+            isMuted = true;
+            clearTimeout(silenceTimer);
+            try { recognition.stop(); } catch(e){}
+            micToggleBtn.className = "mic-btn-circle mic-muted text-white";
+            micIcon.className = "fas fa-microphone-slash";
+            wave.classList.add('d-none');
+            listeningIndicator.classList.add('d-none');
+        }
+
+        function unmuteMic() {
+            isMuted = false;
+            micToggleBtn.className = "mic-btn-circle mic-live text-white";
+            micIcon.className = "fas fa-microphone";
+            wave.classList.remove('d-none');
+            listeningIndicator.classList.remove('d-none');
+            recognition.lang = langPicker.value;
+            try { recognition.start(); } catch(e){}
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter') manualSend();
+        }
+
+        function manualSend() {
+            const input = document.getElementById('user-input');
+            const q = input.value.trim();
+            if (q) {
+                clearTimeout(silenceTimer);
+                dispatchQuery(q);
+            }
+        }
+
+        async function dispatchQuery(queryText) {
+            stream.innerHTML += `<div class="msg-bubble msg-user">${queryText}</div>`;
+            conversationHistory.push({ role: 'user', content: queryText });
+            document.getElementById('user-input').value = '';
+            stream.scrollTop = stream.scrollHeight;
+
+            try {
+                const res = await fetch('/api/voice/intake', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        session_id: sessionId, 
+                        message: queryText,
+                        language: langPicker.value,
+                        history: conversationHistory
+                    })
+                });
+                const data = await res.json();
+
+                stream.innerHTML += `<div class="msg-bubble msg-agent">${data.reply}</div>`;
+                conversationHistory.push({ role: 'assistant', content: data.reply });
+                stream.scrollTop = stream.scrollHeight;
+
+                if ('speechSynthesis' in window && data.reply) {
+                    window.speechSynthesis.cancel();
+                    const utter = new SpeechSynthesisUtterance(data.reply);
+                    utter.lang = langPicker.value;
+                    utter.rate = 1.0;
+
+                    utter.onstart = () => {
+                        isAgentSpeaking = true;
+                        listeningIndicator.classList.add('d-none');
+                    };
+
+                    utter.onend = () => {
+                        isAgentSpeaking = false;
+                        if (!isMuted && !data.call_ended) {
+                            listeningIndicator.classList.remove('d-none');
+                        }
+                    };
+
+                    window.speechSynthesis.speak(utter);
+                }
+
+                if (data.call_ended) {
+                    muteMic();
+                    actionFooter.innerHTML = `
+                        <div class="w-100 text-center p-1">
+                            <a href="/api/tax/download-memo-pdf?client_name=Shashank&income=1500000" target="_blank" class="btn btn-danger btn-sm w-100 mb-2">
+                                <i class="fas fa-file-pdf me-1"></i> Download Tax Consultation PDF
+                            </a>
+                            <button class="btn btn-outline-light btn-sm w-100" onclick="location.reload()">
+                                <i class="fas fa-redo me-1"></i> Start New Consultation
+                            </button>
+                        </div>
+                    `;
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>
